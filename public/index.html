@@ -100,8 +100,8 @@
                 <p style="margin:0; font-size:12px; line-height:1.4;">
                     1. Absorb <b style="color:#00ff00;">Mana Gates</b> to grow stronger.<br>
                     2. <b style="color:red;">RED GATES (S)</b> only appear after a <b style="color:cyan;">RESPAWN</b> has occurred.<br>
-                    3. If you are the lone survivor, the <b style="color:white;">Silver Gate</b> appears.<br>
-                    4. <b style="color:red;">DEADLINE:</b> You have <b style="color:white;">3 STEPS</b> to reach the Silver Gate or everyone resurrects.
+                    3. If you fail to clear the <b style="color:white;">Silver Gate</b>, all hunters resurrect.<br>
+                    4. <b style="color:cyan;">RESURRECTION:</b> Dead hunters return with <b style="color:var(--sys-gold);">Combined Party Mana + Bonus</b>.
                 </p>
             </div>
 
@@ -146,7 +146,6 @@
     </div>
 
     <script>
-        // CRITICAL FOR ONLINE: Connect without local URL
         const socket = io();
         
         let myHunter = null;
