@@ -235,7 +235,6 @@
                 </div>`;
             }).join('') || "NO HUNTERS RECORDED";
 
-            // Update my local profile if I'm in the list
             if (myHunter) {
                 const myIndex = currentWorldRankings.findIndex(h => h.username === myHunter.username);
                 if (myIndex !== -1) {
@@ -282,8 +281,15 @@
             document.getElementById('st-stats').innerText = `WINS: ${d.wins || 0} | LOSSES: ${d.losses || 0}`;
             
             if(document.getElementById('screen-auth').classList.contains('active')) showScreen('screen-menu'); 
-            renderRankings(); // Update rank display immediately after login
+            renderRankings();
         });
+
+        // FIXED MULTIPLAYER BUTTON ACTION
+        function openOnlineLobby() {
+            if(!myHunter) return;
+            resetGameUI();
+            socket.emit('joinQueue', { user: myHunter.username });
+        }
 
         function startAI(diff) { 
             resetGameUI(); 
@@ -300,6 +306,43 @@
 
         socket.on('gameStart', () => { resetGameUI(); showScreen('screen-game'); });
 
+        // VS SCREEN LOGIC
+        socket.on('battleInitiated', (data) => {
+            const vsPanel = document.getElementById('vs-panel');
+            const vsData = document.getElementById('vs-data');
+            const vsFill = document.getElementById('vs-fill');
+            const skillArea = document.getElementById('skill-area');
+
+            vsPanel.style.display = 'flex';
+            vsFill.style.width = '0%';
+            setTimeout(() => { vsFill.style.width = '100%'; }, 50);
+
+            vsData.innerHTML = `
+                <div style="font-weight:900; color:white;">${data.attacker.name} <span style="color:var(--sys-red)">VS</span> ${data.defender.name}</div>
+                <div style="font-size:14px; color:var(--sys-blue); margin-top:5px;">OPPONENT MANA: ${data.defender.mana}</div>
+            `;
+
+            skillArea.innerHTML = "";
+            if (data.attacker.id === socket.id && data.attacker.powerup) {
+                const btn = document.createElement('button');
+                btn.className = 'skill-activate-btn';
+                btn.innerHTML = `ACTIVATE ${POWER_ICONS[data.attacker.powerup] || ''} ${data.attacker.powerup}`;
+                btn.onclick = () => {
+                    socket.emit('usePowerUp');
+                    btn.disabled = true;
+                    btn.style.opacity = '0.5';
+                    btn.innerText = "SKILL ACTIVE";
+                };
+                skillArea.appendChild(btn);
+            }
+        });
+
+        socket.on('battleUpdate', (result) => {
+            setTimeout(() => {
+                document.getElementById('vs-panel').style.display = 'none';
+            }, 1000);
+        });
+
         socket.on('gameStateUpdate', (s) => {
             const board = document.getElementById('game-board');
             board.innerHTML = "";
@@ -314,19 +357,23 @@
             document.getElementById('tc-spawn').innerText = 3 - (s.globalTurns % 3);
             document.getElementById('turn-txt').innerText = isTurn ? ">> YOUR MOVE" : `>> ${s.players[s.turn].name.toUpperCase()} ACTING`;
 
-            // UPDATE PARTY LIST WITH WORLD RANKING
+            // PARTY LIST WITH RANKS IN WAITING ROOM
             document.getElementById('party-list').innerHTML = s.players.map(p => {
                 let status = p.quit ? '(QUIT)' : (p.alive ? '' : '(KIA)');
                 let rLabel = getShortRankLabel(p.mana); 
-                let manaInfo = p.id === socket.id ? `[MP: ${p.mana}]` : `[${rLabel}]`;
                 
-                // Find world rank index
                 const wRankIdx = currentWorldRankings.findIndex(h => h.username === p.name);
                 const wRankDisplay = wRankIdx !== -1 ? `#${wRankIdx + 1}` : '#??';
 
                 return `<div class="party-member" style="color:${p.quit ? '#444' : p.color}">
-                            <div style="font-size: 10px; color: #888;">WORLD RANK: ${wRankDisplay}</div>
-                            ${p.name} ${manaInfo} ${status}
+                            <div style="font-size: 10px; color: #888; display:flex; justify-content: space-between;">
+                                <span>WORLD RANK: ${wRankDisplay}</span>
+                                <span>${rLabel}</span>
+                            </div>
+                            <div style="display:flex; justify-content:space-between;">
+                                <span>${p.name}</span>
+                                <span style="font-size:12px;">MP: ${p.mana} ${status}</span>
+                            </div>
                         </div>`;
             }).join('');
 
