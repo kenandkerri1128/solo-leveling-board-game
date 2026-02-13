@@ -76,7 +76,7 @@ function isPathBlocked(room, x1, y1, x2, y2) {
 }
 
 io.on('connection', (socket) => {
-    // --- CHAT SYSTEM (UPDATED) ---
+    // --- CHAT SYSTEM ---
     socket.on('sendMessage', async (data) => {
         const { roomId, message, senderName } = data;
         const { data: user } = await supabase.from('Hunters').select('manapoints').eq('username', senderName).maybeSingle();
@@ -117,8 +117,12 @@ io.on('connection', (socket) => {
         }
     });
 
+    // UPDATED: Limit changed to 100 for the "See More" feature
     socket.on('requestWorldRankings', async () => {
-        const { data } = await supabase.from('Hunters').select('username, manapoints, wins, losses').order('manapoints', { ascending: false }).limit(10);
+        const { data } = await supabase.from('Hunters')
+            .select('username, manapoints, wins, losses')
+            .order('manapoints', { ascending: false })
+            .limit(100);
         socket.emit('updateWorldRankings', data);
     });
 
@@ -320,13 +324,11 @@ async function resolveConflict(room, p) {
             if (pCalcMana >= oCalcMana) { 
                 p.mana += opponent.mana; 
                 opponent.alive = false; 
-                // Loss recording for defeated human
                 if (!opponent.isAI && room.isOnline) recordLoss(opponent.name);
             }
             else { 
                 opponent.mana += p.mana; 
                 p.alive = false; 
-                // Loss recording for defeated human
                 if (!p.isAI && room.isOnline) recordLoss(p.name);
             }
         }
@@ -380,7 +382,7 @@ async function recordLoss(username) {
     const { data: u } = await supabase.from('Hunters').select('manapoints, losses').eq('username', username).maybeSingle();
     if (u) {
         await supabase.from('Hunters').update({ 
-            manapoints: Math.max(0, u.manapoints - 5), // Slight penalty for dying
+            manapoints: Math.max(0, u.manapoints - 5), 
             losses: (u.losses || 0) + 1 
         }).eq('username', username);
     }
