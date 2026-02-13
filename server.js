@@ -6,6 +6,7 @@ const path = require('path');
 const { createClient } = require('@supabase/supabase-js'); 
 
 // --- DATABASE CONNECTION ---
+// Re-typed to ensure no hidden characters/spaces from copy-pasting
 const supabaseUrl = 'https://wfsuxqgvshrhqfvnkzdx.supabase.co'; 
 const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Indmc3V4cWd2c2hyaHFmdm5remR4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA4MjUwMTQsImV4cCI6MjA4NjQwMTAxNH0.QyMDbuG62tUeYmHJX8kKZSCrRmQ6ISHmvfhRTBj0aOU';
 const supabase = createClient(supabaseUrl, supabaseKey);
@@ -95,8 +96,7 @@ io.on('connection', (socket) => {
                 await supabase.from('hunters').insert([{ username: u, password: p, mana: 20, wins: 0, losses: 0 }]);
             }
 
-            // FIXED: Using array check instead of .single() to prevent crash
-            const { data: users, error } = await supabase.from('hunters').select('*').eq('username', u).eq('password', p);
+            const { data: users } = await supabase.from('hunters').select('*').eq('username', u).eq('password', p);
 
             if (users && users.length > 0) {
                 const user = users[0];
@@ -113,6 +113,20 @@ io.on('connection', (socket) => {
             }
         } catch (err) {
             socket.emit('authError', "DATABASE CONNECTION ERROR");
+        }
+    });
+
+    // Added Leaderboard Handler
+    socket.on('requestWorldRankings', async () => {
+        try {
+            const { data: list } = await supabase
+                .from('hunters')
+                .select('username, mana')
+                .order('mana', { ascending: false })
+                .limit(10);
+            socket.emit('updateWorldRankings', list || []);
+        } catch (err) {
+            console.error("Rankings Fetch Failed");
         }
     });
 
