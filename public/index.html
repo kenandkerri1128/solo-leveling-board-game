@@ -174,21 +174,7 @@
             };
         }
 
-        function getGameRankLabel(m) {
-            if(m >= 1000) return "HIGHER S";
-            if(m >= 901) return "LOWER S";
-            if(m >= 801) return "HIGHER A";
-            if(m >= 701) return "LOWER A";
-            if(m >= 601) return "HIGHER B";
-            if(m >= 501) return "LOWER B";
-            if(m >= 401) return "HIGHER C";
-            if(m >= 301) return "LOWER C";
-            if(m >= 201) return "HIGHER D";
-            if(m >= 101) return "LOWER D";
-            if(m >= 51) return "HIGHER E";
-            return "LOWER E";
-        }
-
+        // Updated for Side-Bar/HUD: Removes Higher/Lower
         function getShortRankLabel(m) {
             if(m >= 901) return "S-RANK";
             if(m >= 701) return "A-RANK";
@@ -352,7 +338,7 @@
             if(!me) return;
             const isTurn = s.players[s.turn].id === socket.id;
             
-            const silverGate = Object.values(s.world).find(cell => cell.type === 'Silver');
+            const silverGate = Object.values(s.world).find(cell => cell.rank === 'Silver');
             if (silverGate) {
                 document.getElementById('tc-silver-container').style.display = 'block';
                 document.getElementById('silver-power').innerText = silverGate.mana;
@@ -363,10 +349,13 @@
             document.getElementById('tc-spawn').innerText = 3 - (Math.floor(s.globalTurns / s.players.length) % 3);
             document.getElementById('turn-txt').innerText = isTurn ? ">> YOUR MOVE" : `>> ${s.players[s.turn].name.toUpperCase()} ACTING`;
 
+            // Updated Side-Bar Party List
             document.getElementById('party-list').innerHTML = s.players.map(p => {
                 let status = p.quit ? '(QUIT)' : (p.alive ? '' : '(KIA)');
                 let powerInfo = (p.id === socket.id && p.powerUp) ? `<div class="power-icon">${POWER_ICONS[p.powerUp]} ${p.powerUp}</div>` : "";
-                let rLabel = getGameRankLabel(p.mana); 
+                
+                // FIXED: Use the Short Rank Label here
+                let rLabel = getShortRankLabel(p.mana); 
                 let manaInfo = p.id === socket.id ? `[MP: ${p.mana}]` : `[${rLabel}]`;
                 return `<div class="party-member" style="color:${p.quit ? '#444' : p.color}">${p.name} ${manaInfo} ${status} ${powerInfo}</div>`;
             }).join('');
@@ -392,7 +381,10 @@
                             const h = document.createElement('div');
                             h.className = 'humanoid';
                             let pwrTag = (p.id === socket.id && p.powerUp) ? `<span class="power-icon">${POWER_ICONS[p.powerUp]}</span>` : "";
-                            let shortRank = getShortRankLabel(p.mana);
+                            
+                            // FIXED: Directly use the rankLabel sent from the server to ensure 100% sync
+                            let shortRank = p.rankLabel || getShortRankLabel(p.mana);
+
                             h.innerHTML = `<div class="name-tag" style="color:${p.color}">${p.name} (${shortRank})${pwrTag}</div>
                                            <div class="h-head" style="background:${p.color}"></div>
                                            <div class="h-body" style="background:${p.color}"></div>`;
