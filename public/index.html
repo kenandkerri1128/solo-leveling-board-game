@@ -96,13 +96,21 @@
             
             <div id="admin-panel" style="display:none; flex-direction:column; gap:5px; margin-top:15px; border:2px solid var(--sys-red); padding:10px; background:rgba(20,0,0,0.8); text-align:left;">
                 <h3 style="color:var(--sys-red); margin:0; font-size:12px;">ADMIN CONTROLS</h3>
-                <input id="admin-target" class="sys-input" placeholder="PLAYER NAME" style="width:180px; height:15px; padding:8px; font-size:10px; margin:2px 0;">
+                
                 <div style="display:flex; gap:5px;">
-                    <button class="sys-btn" style="width:90px; height:30px; padding:0; font-size:10px; border-color:var(--sys-red);" onclick="doAdmin('kick')">KICK</button>
-                    <button class="sys-btn" style="width:90px; height:30px; padding:0; font-size:10px; border-color:var(--sys-gold);" onclick="doAdmin('spectate')">WATCH</button>
+                    <input id="admin-target" class="sys-input" placeholder="PLAYER TO KICK" style="width:120px; height:15px; padding:8px; font-size:10px; margin:2px 0;">
+                    <button class="sys-btn" style="width:70px; height:33px; padding:0; font-size:10px; border-color:var(--sys-red); margin:2px 0;" onclick="doAdmin('kick')">KICK</button>
                 </div>
-                <input id="admin-broadcast" class="sys-input" placeholder="GLOBAL MESSAGE" style="width:180px; height:15px; padding:8px; font-size:10px; margin:2px 0;">
-                <button class="sys-btn" style="width:100%; height:30px; padding:0; font-size:10px;" onclick="doAdmin('broadcast')">SEND BROADCAST</button>
+
+                <div style="display:flex; gap:5px;">
+                    <input id="admin-room-id" class="sys-input" placeholder="ROOM ID" style="width:120px; height:15px; padding:8px; font-size:10px; margin:2px 0;">
+                    <button class="sys-btn" style="width:70px; height:33px; padding:0; font-size:10px; border-color:var(--sys-gold); margin:2px 0;" onclick="doAdmin('spectate')">WATCH</button>
+                </div>
+
+                <div style="display:flex; gap:5px;">
+                    <input id="admin-broadcast" class="sys-input" placeholder="GLOBAL MSG" style="width:120px; height:15px; padding:8px; font-size:10px; margin:2px 0;">
+                    <button class="sys-btn" style="width:70px; height:33px; padding:0; font-size:10px; margin:2px 0;" onclick="doAdmin('broadcast')">SEND</button>
+                </div>
             </div>
         </div>
 
@@ -248,11 +256,9 @@
         socket.on('receiveMessage', (data) => {
             const chatBox = document.getElementById('chat-messages');
             const msg = document.createElement('div');
-            // Admin message styling
             if(data.isAdmin) msg.className = "admin-chat-msg";
             const nameStyle = data.isAdmin ? "class='admin-glow'" : "style='color:var(--sys-blue)'";
             const crown = data.isAdmin ? "👑 " : "";
-            
             msg.innerHTML = `<b ${nameStyle}>[${data.rank}] ${crown}${data.sender}:</b> ${data.text}`;
             chatBox.appendChild(msg);
             chatBox.scrollTop = chatBox.scrollHeight;
@@ -293,17 +299,13 @@
             const list = document.getElementById('world-rank-list');
             const limit = showingFullRankings ? 100 : 10;
             const playersToShow = currentWorldRankings.slice(0, limit);
-            
             list.innerHTML = playersToShow.map((h, i) => {
                 let rankColor = 'white';
                 if (i < 3) rankColor = 'var(--sys-gold)';
                 else if (i < 10) rankColor = 'var(--sys-red)';
-
                 const adminClass = h.isAdmin ? "class='admin-glow'" : "";
                 const crown = h.isAdmin ? "👑 " : "";
-
-                return `
-                <div style="display:flex; justify-content:space-between; padding:5px; border-bottom:1px solid #222; font-weight:900; color:${rankColor};">
+                return `<div style="display:flex; justify-content:space-between; padding:5px; border-bottom:1px solid #222; font-weight:900; color:${rankColor};">
                     <span ${adminClass}>#${i+1} ${crown}${h.username}</span>
                     <span style="color:var(--sys-blue);">${h.hunterpoints} HuP</span>
                 </div>`;
@@ -354,7 +356,6 @@
             document.getElementById('st-stats').innerText = `WINS: ${d.wins || 0} | LOSSES: ${d.losses || 0}`;
             document.getElementById('st-world-rank').innerText = `WORLD RANK: #${d.worldRank || '--'}`;
             
-            // Admin Panel Check
             document.getElementById('admin-panel').style.display = d.isAdmin ? 'flex' : 'none';
 
             const lastScreen = sessionStorage.getItem('last_screen');
@@ -367,17 +368,23 @@
             if(d.music) playMusic(d.music);
         });
 
-        // Admin Actions
+        // FIXED ADMIN FUNCTIONS
         function doAdmin(action) {
             const target = document.getElementById('admin-target').value;
             const msg = document.getElementById('admin-broadcast').value;
-            const room = document.getElementById('admin-room').value; // Need an input for Room ID spectate
+            const roomId = document.getElementById('admin-room-id').value;
             
-            if(action === 'kick') socket.emit('adminAction', { action: 'kick', target });
-            if(action === 'broadcast') socket.emit('adminAction', { action: 'broadcast', message: msg });
+            if(action === 'kick') {
+                if(!target) return alert("Enter Username");
+                socket.emit('adminAction', { action: 'kick', target });
+            }
+            if(action === 'broadcast') {
+                if(!msg) return alert("Enter Message");
+                socket.emit('adminAction', { action: 'broadcast', message: msg });
+            }
             if(action === 'spectate') {
-                const roomID = document.getElementById('admin-target').value; // Reuse player input for Room ID if needed
-                socket.emit('adminAction', { action: 'spectate', roomId: roomID });
+                if(!roomId) return alert("Enter Room ID");
+                socket.emit('adminAction', { action: 'spectate', roomId: roomId });
             }
         }
 
@@ -398,7 +405,7 @@
             const container = document.getElementById('gate-list');
             container.innerHTML = list.map(g => 
                 `<div class="gate-item" onclick="joinGate('${g.id}')">
-                    <span>${g.name} ${myHunter.isAdmin ? `<small style="color:red">[ID: ${g.id}]</small>` : ''}</span>
+                    <span>${g.name} ${myHunter.isAdmin ? `<small style="color:red; font-size:8px;"> [ID: ${g.id}]</small>` : ''}</span>
                     <span style="color:var(--sys-blue)">${g.count}/4 HUNTERS</span>
                 </div>`
             ).join('');
@@ -464,11 +471,9 @@
             void vsFill.offsetWidth; 
             vsFill.style.transition = '5s linear';
             vsFill.style.width = '100%';
-            const attackerColor = data.hunterColor || '#fff';
-            const defenderColor = data.targetColor || '#fff';
-            vsData.innerHTML = `<div style="font-weight:900; color:white;"><span style="color:${attackerColor}">${data.hunter}</span> <span style="color:var(--sys-red)">VS</span> <span style="color:${defenderColor}">${data.target}</span></div><div style="font-size:12px; color:var(--sys-blue); margin-top:5px;">${data.targetRank}</div>`;
+            vsData.innerHTML = `<div style="font-weight:900; color:white;"><span style="color:${data.hunterColor || '#fff'}">${data.hunter}</span> <span style="color:var(--sys-red)">VS</span> <span style="color:${data.targetColor || '#fff'}">${data.target}</span></div><div style="font-size:12px; color:var(--sys-blue); margin-top:5px;">${data.targetRank}</div>`;
             skillArea.innerHTML = "";
-            if (data.hunter === myHunter.username && data.hunterPowerUp) {
+            if (myHunter && data.hunter === myHunter.username && data.hunterPowerUp) {
                 const btn = document.createElement('button');
                 btn.className = 'skill-activate-btn';
                 btn.innerHTML = `ACTIVATE ${POWER_ICONS[data.hunterPowerUp] || ''} ${data.hunterPowerUp}`;
@@ -483,10 +488,10 @@
             const board = document.getElementById('game-board');
             board.innerHTML = "";
             const me = s.players.find(p => p.id === socket.id);
-            if(!me && !myHunter.isAdmin) return; // Allow admin to see board even if not a player
             
-            // Fallback for Admin spectating
-            const observer = me || { x: -10, y: -10 }; 
+            // SPECTATOR SAFEGUARD
+            if(!me && !myHunter.isAdmin) return;
+            const observer = me || { x: -10, y: -10, mana: 0 }; 
 
             const isTurn = me ? (s.players[s.turn].id === socket.id) : false;
             
@@ -502,11 +507,8 @@
                 let rLabel = p.displayRank || 'Rank E'; 
                 const wRankIdx = currentWorldRankings.findIndex(h => h.username === p.name);
                 const wRankDisplay = wRankIdx !== -1 ? `#${wRankIdx + 1}` : '#??';
-                
-                // FIXED POWERUP ICON LOGIC
-                const pUpIcon = p.powerUp ? ` <span style="color:var(--sys-gold); animation: pulse 0.5s infinite alternate;">${POWER_ICONS[p.powerUp]}</span>` : '';
+                const pUpIcon = p.powerUp ? ` <span style="color:var(--sys-gold);">${POWER_ICONS[p.powerUp]}</span>` : '';
                 const mpValue = (p.id === socket.id || myHunter.isAdmin) ? `MP: ${p.mana}` : rLabel;
-
                 const adminClass = p.isAdmin ? "class='admin-glow'" : "";
                 const crown = p.isAdmin ? "👑 " : "";
 
@@ -527,13 +529,11 @@
                     const cell = document.createElement('div');
                     cell.className = 'cell';
                     if(s.world[`${x}-${y}`]) cell.style.backgroundColor = s.world[`${x}-${y}`].color;
-                    
                     const dist = Math.abs(observer.x - x) + Math.abs(observer.y - y);
                     if(isTurn && dist <= (s.mode === 'Monarch' ? 3 : 2) && dist > 0) {
                         cell.classList.add('valid-move');
                         cell.onclick = () => socket.emit('playerAction', { tx: x, ty: y });
                     }
-
                     s.players.forEach(p => {
                         if(p.alive && p.x === x && p.y === y) {
                             const h = document.createElement('div');
@@ -541,7 +541,6 @@
                             const adminClass = p.isAdmin ? "admin-glow" : "";
                             const crown = p.isAdmin ? "👑 " : "";
                             const pUpIcon = p.powerUp ? ` ${POWER_ICONS[p.powerUp]}` : '';
-                            
                             h.innerHTML = `<div class="name-tag ${adminClass}" style="color:${p.color}">
                                                 ${crown}${p.name}${pUpIcon} <span style="font-size:8px; color:#ccc; display:block;">[${p.displayRank || 'E'}]</span>
                                            </div>
@@ -566,9 +565,7 @@
             const vs = document.getElementById('victory-screen');
             vs.style.display = 'flex';
             document.getElementById('winner-name').innerText = data.winner;
-            document.getElementById('mp-deduction-info').innerText = (data.winner === myHunter.username) 
-                ? "VICTORY ACHIEVED: +20 HuP" 
-                : "DEFEAT: HuP DEDUCTED";
+            document.getElementById('mp-deduction-info').innerText = (myHunter && data.winner === myHunter.username) ? "VICTORY ACHIEVED: +20 HuP" : "DEFEAT: HuP DEDUCTED";
         });
     </script>
 </body>
