@@ -32,9 +32,10 @@
         .sidebar { width: 350px; border: 2px solid var(--sys-blue); background: #000; padding: 15px; height: 650px; display: flex; flex-direction: column; }
         .party-member { font-size: 16px; font-weight: 900; margin-bottom: 8px; border-bottom: 1px solid #222; padding: 5px 0; }
         
-        /* FIX: VS Panel integrated into Sidebar */
-        #vs-panel { display: none; background: rgba(30,0,0,1); border: 2px solid var(--sys-red); padding: 10px; margin-top: 5px; flex-direction: column; align-items: center; box-shadow: 0 0 15px var(--sys-red); width: 90%; align-self: center; }
+        /* VS PANEL - Embedded in Sidebar */
+        #vs-panel { display: none; background: rgba(20,0,0,0.9); border: 2px solid var(--sys-red); padding: 10px; margin-bottom: 15px; flex-direction: column; align-items: center; box-shadow: 0 0 15px var(--sys-red); width: 100%; box-sizing: border-box; }
         .v-fill { height: 6px; background: var(--sys-red); width: 0%; transition: 5s linear; margin-top: 10px; }
+        
         #turn-counter { margin-top: 10px; padding: 10px; border: 1px solid #333; font-size: 14px; text-align: center; color: var(--sys-gold); }
         #victory-screen { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.95); z-index: 10000; flex-direction: column; align-items: center; justify-content: center; text-align: center;}
 
@@ -46,6 +47,10 @@
         .chat-input-row { display: flex; border-top: 1px solid var(--sys-blue); }
         .chat-input-row input { flex-grow: 1; background: #000; border: none; color: white; padding: 10px; outline: none; }
         .chat-input-row button { background: var(--sys-blue); border: none; padding: 5px 15px; cursor: pointer; font-weight: 900; }
+        
+        /* Lobby Styles */
+        .gate-item { padding: 15px; border-bottom: 1px solid #333; display: flex; justify-content: space-between; align-items: center; cursor: pointer; transition: 0.2s; }
+        .gate-item:hover { background: rgba(0, 210, 255, 0.1); }
     </style>
 </head>
 <body>
@@ -98,6 +103,24 @@
         <button class="sys-btn" style="border-color:#555;" onclick="location.reload()">LOGOUT</button>
     </div>
 
+    <div id="screen-lobby" class="screen">
+        <h2 style="margin-bottom: 20px;">GATE SELECTION</h2>
+        <div style="display:flex; gap:10px; margin-bottom: 10px;">
+            <input type="text" id="gate-name-input" class="sys-input" placeholder="GATE NAME" style="width: 250px;">
+            <button class="sys-btn" style="width:auto;" onclick="createGate()">OPEN GATE</button>
+        </div>
+        <div id="gate-list" style="width: 600px; height: 400px; border: 2px solid var(--sys-blue); margin-bottom: 20px; overflow-y: auto; background: rgba(0,0,0,0.8);">
+            </div>
+        <button class="sys-btn" onclick="showScreen('screen-menu')">BACK</button>
+    </div>
+
+    <div id="screen-waiting" class="screen">
+        <h2 id="waiting-title">WAITING FOR HUNTERS...</h2>
+        <div id="waiting-list" style="width: 500px; min-height: 200px; border: 2px solid var(--sys-blue); padding: 20px; margin: 20px; background: rgba(0,0,0,0.8);"></div>
+        <button class="sys-btn" id="btn-ready" onclick="playerConfirm()">READY / START</button>
+        <button class="sys-btn" style="border-color:#555" onclick="leaveWaitingRoom()">LEAVE</button>
+    </div>
+
     <div id="screen-difficulty" class="screen">
         <h2>QUEST TYPE</h2>
         <button class="sys-btn" onclick="startAI('Easy')">EASY</button>
@@ -130,9 +153,6 @@
         <div style="display:flex; gap:20px; padding: 0 20px;">
             <div id="game-board"></div>
             <div class="sidebar">
-                <h3 id="turn-txt" style="color:var(--sys-gold); font-size: 14px;">>> SYSTEM TURN</h3>
-                <div id="party-list"></div>
-                
                 <div id="vs-panel">
                     <span id="vs-title" style="color:var(--sys-red); font-weight:900;">COMBAT INITIATED</span>
                     <div id="vs-data" style="font-size: 16px; text-align: center; margin: 10px 0;"></div>
@@ -140,6 +160,9 @@
                     <div style="width:100%; height:4px; background:#111;"><div class="v-fill" id="vs-fill"></div></div>
                 </div>
 
+                <h3 id="turn-txt" style="color:var(--sys-gold); font-size: 14px;">>> SYSTEM TURN</h3>
+                <div id="party-list"></div>
+                
                 <div id="turn-counter">
                     <div id="tc-spawn-text">RANDOM GATE: <span id="tc-spawn">3</span> ROUNDS</div>
                     <div id="tc-silver-container" style="display:none; color:var(--sys-silver); font-weight: bold; border: 2px solid var(--sys-silver); padding: 5px; margin-top: 5px; background: rgba(255,255,255,0.1);">
@@ -161,6 +184,7 @@
         let currentWorldRankings = [];
         let currentBGM = "";
         let showingFullRankings = false;
+        let currentGateID = null; // Track current room
 
         const POWER_ICONS = { 'DOUBLE DAMAGE': '⚔️', 'GHOST WALK': '👣', 'NETHER SWAP': '🌀' };
 
@@ -291,10 +315,73 @@
             renderRankings();
         });
 
+        // --- NEW MULTIPLAYER LOBBY LOGIC ---
+
         function openOnlineLobby() {
             if(!myHunter) return;
-            resetGameUI();
-            socket.emit('joinQueue', { user: myHunter.username });
+            showScreen('screen-lobby');
+            socket.emit('requestGateList');
+            socket.emit('joinChatRoom', 'global'); // Lobby chat is global
+        }
+
+        function createGate() {
+            const name = document.getElementById('gate-name-input').value;
+            if(!name) return alert("ENTER GATE NAME");
+            socket.emit('createGate', { host: myHunter.username, name: name });
+        }
+
+        socket.on('updateGateList', (list) => {
+            const container = document.getElementById('gate-list');
+            container.innerHTML = list.map(g => 
+                `<div class="gate-item" onclick="joinGate('${g.id}')">
+                    <span>${g.name}</span>
+                    <span style="color:var(--sys-blue)">${g.count}/4 HUNTERS</span>
+                </div>`
+            ).join('');
+        });
+
+        function joinGate(id) {
+            socket.emit('joinGate', { gateID: id, user: myHunter.username });
+        }
+
+        socket.on('waitingRoomUpdate', (room) => {
+            currentGateID = room.id;
+            showScreen('screen-waiting');
+            document.getElementById('waiting-title').innerText = `GATE: ${room.name}`;
+            
+            // Sync Chat to this room
+            if(myRoomID !== room.id) socket.emit('joinChatRoom', room.id);
+
+            const container = document.getElementById('waiting-list');
+            container.innerHTML = room.players.map(p => 
+                `<div style="padding:10px; border-bottom:1px solid #333; display:flex; justify-content:space-between; color:${p.color}">
+                    <span>${p.name} [${getShortRankLabel(p.mana)}]</span>
+                    <span>${p.confirmed ? '<b style="color:var(--sys-green)">READY</b>' : 'WAITING'}</span>
+                </div>`
+            ).join('');
+
+            // If everyone is ready, button changes (handled by gameStart server-side, but visuals here)
+            const me = room.players.find(p => p.name === myHunter.username);
+            const btn = document.getElementById('btn-ready');
+            if(me && me.confirmed) {
+                btn.innerText = "WAITING FOR OTHERS...";
+                btn.disabled = true;
+                btn.style.opacity = "0.5";
+            } else {
+                btn.innerText = "READY / START";
+                btn.disabled = false;
+                btn.style.opacity = "1";
+            }
+        });
+
+        function playerConfirm() {
+            if(currentGateID) socket.emit('playerConfirm', { gateID: currentGateID });
+        }
+
+        function leaveWaitingRoom() {
+            socket.emit('quitGame'); // Reuse quit logic to leave room
+            showScreen('screen-lobby');
+            socket.emit('requestGateList');
         }
 
         function startAI(diff) { 
@@ -311,6 +398,7 @@
         }
 
         socket.on('gameStart', (data) => { 
+            if(data && data.roomId) socket.emit('joinChatRoom', data.roomId);
             resetGameUI(); 
             showScreen('screen-game'); 
         });
@@ -331,8 +419,16 @@
             const isDefenderMe = data.defender.id === socket.id;
             const defenderMPDisplay = isDefenderMe ? data.defender.mana : getShortRankLabel(data.defender.mana);
 
+            // Use Colors from Server
+            const attackerColor = data.hunterColor || '#fff';
+            const defenderColor = data.targetColor || '#fff';
+
             vsData.innerHTML = `
-                <div style="font-weight:900; color:white;">${data.attacker.name} <span style="color:var(--sys-red)">VS</span> ${data.defender.name}</div>
+                <div style="font-weight:900; color:white;">
+                    <span style="color:${attackerColor}">${data.attacker.name}</span> 
+                    <span style="color:var(--sys-red)">VS</span> 
+                    <span style="color:${defenderColor}">${data.defender.name}</span>
+                </div>
                 <div style="font-size:12px; color:var(--sys-blue); margin-top:5px;">DEFENDER RANK: ${defenderMPDisplay}</div>
             `;
 
