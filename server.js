@@ -37,7 +37,6 @@ function getFullRankLabel(mana) {
     return "Lower E-Rank";
 }
 
-// FIXED: This now returns "Rank E", "Rank D", etc. as requested for character UI
 function getPlainRankLabel(mana) {
     if (mana >= 901) return "Rank S";
     if (mana >= 701) return "Rank A";
@@ -75,24 +74,28 @@ function isPathBlocked(room, x1, y1, x2, y2) {
 }
 
 io.on('connection', (socket) => {
-    // --- CHAT SYSTEM (FIXED FOR IN-GAME) ---
+    // --- CHAT SYSTEM (FIXED FOR SCOPED ROOMS) ---
     socket.on('sendMessage', async (data) => {
-        const { roomId, message, senderName } = data;
+        const { roomId, message, senderName, location } = data;
         const { data: user } = await supabase.from('Hunters').select('manapoints').eq('username', senderName).maybeSingle();
         
-        // Use simplified rank for chat to keep it clean
         const rank = user ? getPlainRankLabel(user.manapoints) : "Rank E";
         const chatData = { 
             sender: senderName, 
             text: message, 
             rank: rank, 
-            timestamp: new Date().toLocaleTimeString() 
+            timestamp: new Date().toLocaleTimeString(),
+            location: location // Profile, Multiplayer, Waiting, Ingame
         };
 
-        if (!roomId) {
+        if (location === 'Profile') {
+            // Global chat for everyone on Profile Page
             io.emit('receiveMessage', chatData); 
-        } else {
-            // Broadcast to the specific game room
+        } else if (location === 'Multiplayer') {
+            // Only people browsing the multiplayer list
+            io.emit('receiveMessage', chatData); 
+        } else if (roomId) {
+            // Specific for Waiting Room or In-Game
             io.to(roomId).emit('receiveMessage', chatData); 
         }
     });
@@ -118,8 +121,8 @@ io.on('connection', (socket) => {
             });
             syncAllGates();
             
-            // Automatically push rankings on login to ensure World Ranking is back
-            const { data: rankingData } = await supabase.from('Hunters').select('username, manapoints, wins, losses').order('manapoints', { ascending: false }).limit(10);
+            // Push rankings with correct gold/red/white logic handled by frontend after receiving this
+            const { data: rankingData } = await supabase.from('Hunters').select('username, manapoints, wins, losses').order('manapoints', { ascending: false }).limit(100);
             socket.emit('updateWorldRankings', rankingData);
         } else {
             socket.emit('authError', "INVALID ACCESS CODE OR ID");
@@ -156,6 +159,7 @@ io.on('connection', (socket) => {
             world: {}
         };
         socket.join(id);
+        socket.emit('clearChat'); // Reset chat on room entry
         io.to(id).emit('waitingRoomUpdate', rooms[id]);
         socket.emit('playMusic', 'waiting.mp3');
         syncAllGates();
@@ -180,6 +184,7 @@ io.on('connection', (socket) => {
                 powerUp: null 
             });
             socket.join(data.gateID);
+            socket.emit('clearChat'); // Reset chat on room entry
             io.to(data.gateID).emit('waitingRoomUpdate', room);
             socket.emit('playMusic', 'waiting.mp3');
             syncAllGates();
@@ -195,6 +200,7 @@ io.on('connection', (socket) => {
                 room.active = true;
                 for(let i=0; i<5; i++) spawnGate(room);
                 io.to(room.id).emit('gameStart');
+                io.to(room.id).emit('clearChat'); // Reset chat for in-game
                 io.to(room.id).emit('playMusic', 'gameplay.mp3');
                 broadcastGameState(room);
                 syncAllGates();
@@ -218,6 +224,7 @@ io.on('connection', (socket) => {
         for(let i=0; i<5; i++) spawnGate(rooms[id]);
         socket.join(id);
         socket.emit('gameStart');
+        socket.emit('clearChat'); // Reset chat for in-game
         socket.emit('playMusic', 'gameplay.mp3');
         broadcastGameState(rooms[id]);
     });
@@ -234,7 +241,10 @@ io.on('connection', (socket) => {
     });
 
     socket.on('disconnect', async () => { handleExit(socket); });
-    socket.on('quitGame', async () => { handleExit(socket); });
+    socket.on('quitGame', async () => { 
+        socket.emit('clearChat'); // Reset chat when returning to profile
+        handleExit(socket); 
+    });
 
     async function handleExit(s) {
         const room = Object.values(rooms).find(r => r.players.some(p => p.id === s.id));
@@ -306,15 +316,13 @@ async function resolveConflict(room, p) {
     const aliveCount = room.players.filter(pl => pl.alive).length;
     
     if (opponent) {
-        room.players.forEach(pl => {
-            // Emitting battleStart triggers the VS board on the frontend
-            io.to(pl.id).emit('battleStart', { 
-                hunter: p.name, 
-                target: opponent.name, 
-                targetId: opponent.id, 
-                targetMana: opponent.mana, 
-                powerUp: (pl.id === opponent.id || pl.id === p.id) ? pl.powerUp : null
-            });
+        // VS SCREEN TRIGGER
+        io.to(room.id).emit('battleStart', { 
+            hunter: p.name, 
+            target: opponent.name, 
+            hunterMana: p.mana,
+            targetMana: opponent.mana,
+            isPlayerVsPlayer: true
         });
         await new Promise(r => setTimeout(r, 6000));
         
@@ -369,7 +377,14 @@ async function resolveConflict(room, p) {
 
     if (room.world[coord]) {
         const gate = room.world[coord];
-        io.to(room.id).emit('battleStart', { hunter: p.name, target: `RANK ${gate.rank}`, targetMana: gate.mana });
+        // VS SCREEN TRIGGER FOR GATE
+        io.to(room.id).emit('battleStart', { 
+            hunter: p.name, 
+            target: `RANK ${gate.rank} GATE`, 
+            hunterMana: p.mana,
+            targetMana: gate.mana,
+            isPlayerVsPlayer: false
+        });
         await new Promise(r => setTimeout(r, 5000));
         
         if (p.mana >= gate.mana) {
@@ -470,7 +485,6 @@ function spawnGate(room) {
 function broadcastGameState(room) { 
     const sanitizedPlayers = room.players.map(p => ({
         ...p,
-        // FIXED: Character UI now shows "Rank E", "Rank D", etc. instead of Higher/Lower
         rankLabel: getPlainRankLabel(p.mana)
     }));
     const state = { ...room, players: sanitizedPlayers };
