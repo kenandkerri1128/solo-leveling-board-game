@@ -31,23 +31,18 @@
         #vs-panel { display: none; background: rgba(20,0,0,0.95); border: 2px solid var(--sys-red); padding: 15px; margin-top: 10px; flex-direction: column; align-items: center; box-shadow: 0 0 20px var(--sys-red); z-index: 1000; }
         .v-fill { height: 6px; background: var(--sys-red); width: 0%; transition: 5s linear; margin-top: 10px; }
         #turn-counter { margin-top: 10px; padding: 10px; border: 1px solid #333; font-size: 14px; text-align: center; color: var(--sys-gold); }
-        #victory-screen { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.95); z-index: 10000; flex-direction: column; align-items: center; justify-content: center; }
+        #victory-screen { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.95); z-index: 10000; flex-direction: column; align-items: center; justify-content: center; text-align: center;}
 
         .power-icon { font-size: 14px; margin-top: 2px; color: var(--sys-gold); }
         .skill-activate-btn { background: var(--sys-gold); color: #000; border: none; padding: 8px 20px; font-family: 'Orbitron'; font-weight: 900; cursor: pointer; margin-top: 10px; animation: pulse 0.6s infinite alternate; border-radius: 4px; box-shadow: 0 0 15px var(--sys-gold); }
         @keyframes pulse { from { transform: scale(1); filter: brightness(1); } to { transform: scale(1.1); filter: brightness(1.3); } }
 
-        /* GLOBAL CHAT STYLING */
-        #global-chat-container { width: 400px; height: 200px; border: 2px solid var(--sys-blue); background: rgba(0,0,0,0.8); display: none; flex-direction: column; margin-top: 10px; }
+        /* CHAT STYLING - UPDATED FOR DYNAMIC PLACEMENT */
+        #global-chat-container { width: 400px; height: 200px; border: 2px solid var(--sys-blue); background: rgba(0,0,0,0.8); display: none; flex-direction: column; margin-top: 10px; z-index: 2000; }
         #chat-messages { flex-grow: 1; overflow-y: auto; padding: 5px; font-size: 12px; font-family: 'Orbitron'; }
         .chat-input-row { display: flex; border-top: 1px solid var(--sys-blue); }
         .chat-input-row input { flex-grow: 1; background: #000; border: none; color: white; padding: 5px; outline: none; }
         .chat-input-row button { background: var(--sys-blue); border: none; padding: 5px 10px; cursor: pointer; font-weight: 900; }
-
-        /* RANKING TABLE STYLES */
-        #world-rank-list { max-height: 300px; overflow-y: auto; margin-bottom: 10px; }
-        .see-more-btn { background: transparent; border: 1px solid var(--sys-blue); color: var(--sys-blue); width: 100%; padding: 5px; cursor: pointer; font-family: 'Orbitron'; font-size: 10px; font-weight: 900; transition: 0.3s; }
-        .see-more-btn:hover { background: var(--sys-blue); color: #000; }
     </style>
 </head>
 <body>
@@ -58,6 +53,15 @@
         <h1 style="font-size: 5rem; color: var(--sys-gold);">QUEST COMPLETE</h1>
         <h2 id="winner-name" style="font-size: 3rem; color: #fff;">---</h2>
         <p>RECALCULATING WORLD RANKINGS...</p>
+        <p id="return-timer" style="color: var(--sys-blue); font-family: 'Orbitron';">Returning to Profile in 5...</p>
+    </div>
+
+    <div id="global-chat-container">
+        <div id="chat-messages"></div>
+        <div class="chat-input-row">
+            <input type="text" id="chat-input" placeholder="SYSTEM MESSAGE...">
+            <button onclick="sendChatMessage()">SEND</button>
+        </div>
     </div>
 
     <div id="screen-auth" class="screen active">
@@ -79,16 +83,10 @@
         <div style="border:2px solid var(--sys-blue); width:400px; padding:20px; background:rgba(0,0,0,0.8);">
             <h3>WORLD RANKINGS</h3>
             <div id="world-rank-list"></div>
-            <button id="see-more-ranks" class="see-more-btn" onclick="toggleRankLimit()">SEE MORE</button>
+            <button id="see-more-ranks" class="see-more-btn" onclick="toggleRankLimit()" style="background: transparent; border: 1px solid var(--sys-blue); color: var(--sys-blue); width: 100%; padding: 5px; cursor: pointer; font-family: 'Orbitron'; font-size: 10px; font-weight: 900;">SEE MORE</button>
         </div>
 
-        <div id="global-chat-container">
-            <div id="chat-messages"></div>
-            <div class="chat-input-row">
-                <input type="text" id="chat-input" placeholder="SYSTEM MESSAGE...">
-                <button onclick="sendChatMessage()">SEND</button>
-            </div>
-        </div>
+        <div id="menu-chat-anchor" style="height: 210px; width: 400px; margin-top: 10px;"></div>
 
         <button class="sys-btn" onclick="showScreen('screen-difficulty')">SINGLE PLAYER</button>
         <button class="sys-btn" onclick="openOnlineLobby()">MULTIPLAYER</button>
@@ -127,28 +125,25 @@
                     1. Absorb <b style="color:#00ff00;">Mana Gates</b> to grow stronger.<br>
                     2. <b style="color:red;">RED GATES (S)</b> only appear after a <b style="color:cyan;">RESPAWN</b>.<br>
                     3. If you are the last hunter, a <b style="color:var(--sys-silver);">SILVER GATE</b> spawns (500+ MP). You must defeat it to win.<br>
-                    4. If the survivor loses to the Silver Gate, <b style="color:cyan;">ALL HUNTERS REAWAKEN</b>. Survivor keeps MP, others gain <b style="color:var(--sys-gold);">+500-1500 MP</b>.
+                    4. If the survivor loses to the Silver Gate, <b style="color:cyan;">ALL HUNTERS REAWAKEN</b>.
                 </p>
             </div>
 
+            <div id="game-chat-anchor" style="height: 210px; width: 100%;"></div>
+
             <h3>RANKING TABLE</h3>
-            <div id="rank-guide">
+            <div id="rank-guide" style="font-size: 10px;">
                 <div class="rank-row" style="color:#ff0000;"><span>HIGHER S</span> <span>1000+</span></div>
                 <div class="rank-row" style="color:#ff0000; opacity:0.8;"><span>LOWER S</span> <span>901-999</span></div>
                 <div class="rank-row" style="color:#ff00ff;"><span>HIGHER A</span> <span>801-900</span></div>
-                <div class="rank-row" style="color:#ff00ff; opacity:0.8;"><span>LOWER A</span> <span>701-800</span></div>
                 <div class="rank-row" style="color:#ff9900;"><span>HIGHER B</span> <span>601-700</span></div>
-                <div class="rank-row" style="color:#ff9900; opacity:0.8;"><span>LOWER B</span> <span>501-600</span></div>
                 <div class="rank-row" style="color:#ffff00;"><span>HIGHER C</span> <span>401-500</span></div>
-                <div class="rank-row" style="color:#ffff00; opacity:0.8;"><span>LOWER C</span> <span>301-400</span></div>
                 <div class="rank-row" style="color:#99ff00;"><span>HIGHER D</span> <span>201-300</span></div>
-                <div class="rank-row" style="color:#99ff00; opacity:0.8;"><span>LOWER D</span> <span>101-200</span></div>
                 <div class="rank-row" style="color:#00ff00;"><span>HIGHER E</span> <span>51-100</span></div>
-                <div class="rank-row" style="color:#00ff00; opacity:0.8;"><span>LOWER E</span> <span>0-50</span></div>
             </div>
         </div>
 
-        <div style="display:flex; gap:20px;">
+        <div style="display:flex; gap:20px; padding: 0 20px;">
             <div id="game-board"></div>
             <div class="sidebar">
                 <h3 id="turn-txt" style="color:var(--sys-gold); font-size: 14px;">>> SYSTEM TURN</h3>
@@ -184,16 +179,15 @@
 
         const POWER_ICONS = { 'DOUBLE DAMAGE': '⚔️', 'GHOST WALK': '👣', 'NETHER SWAP': '🌀' };
 
-        // --- 1. MUSIC STATE MACHINE ---
         function playMusic(track) {
             const audio = document.getElementById('bgm');
             if (currentBGM === track) return;
             currentBGM = track;
             audio.src = `/music/${track}`;
-            audio.play().catch(e => console.log("Music interaction required"));
+            audio.play().catch(e => console.log("Interaction required"));
         }
 
-        // --- 2. CHAT LOGIC ---
+        // --- UPDATED CHAT HANDLING ---
         function sendChatMessage() {
             const input = document.getElementById('chat-input');
             if (input.value.trim() !== "") {
@@ -214,6 +208,17 @@
             chatBox.scrollTop = chatBox.scrollHeight;
         });
 
+        function moveChat(anchorId) {
+            const chat = document.getElementById('global-chat-container');
+            const anchor = document.getElementById(anchorId);
+            if (chat && anchor) {
+                chat.style.display = 'flex';
+                anchor.appendChild(chat);
+                chat.style.width = '100%';
+                chat.style.height = '100%';
+            }
+        }
+
         function getRankColor(index) {
             const rank = index + 1;
             if (rank <= 3) return 'var(--sys-gold)';
@@ -224,25 +229,7 @@
         function getHunterWorldRankData(username) {
             const index = currentWorldRankings.findIndex(h => h.username === username);
             if (index === -1) return { rankText: "RANK: UNKNOWN", color: "white" };
-            return {
-                rankText: `WORLD RANK: ${index + 1}`,
-                color: getRankColor(index)
-            };
-        }
-
-        function getGameRankLabel(m) {
-            if(m >= 1000) return "HIGHER S";
-            if(m >= 901) return "LOWER S";
-            if(m >= 801) return "HIGHER A";
-            if(m >= 701) return "LOWER A";
-            if(m >= 601) return "HIGHER B";
-            if(m >= 501) return "LOWER B";
-            if(m >= 401) return "HIGHER C";
-            if(m >= 301) return "LOWER C";
-            if(m >= 201) return "HIGHER D";
-            if(m >= 101) return "LOWER D";
-            if(m >= 51) return "HIGHER E";
-            return "LOWER E";
+            return { rankText: `WORLD RANK: ${index + 1}`, color: getRankColor(index) };
         }
 
         function getShortRankLabel(m) {
@@ -254,19 +241,6 @@
             return "E-RANK";
         }
 
-        function isPathBlockedClient(room, x1, y1, x2, y2) {
-            let dx = x2 - x1;
-            let dy = y2 - y1;
-            let steps = Math.max(Math.abs(dx), Math.abs(dy));
-            if (steps <= 1) return false;
-            for (let i = 1; i < steps; i++) {
-                let checkX = x1 + Math.round((dx / steps) * i);
-                let checkY = y1 + Math.round((dy / steps) * i);
-                if (room.world[`${checkX}-${checkY}`]) return true;
-            }
-            return false;
-        }
-
         function showScreen(id) { 
             const screens = document.querySelectorAll('.screen');
             screens.forEach(s => s.classList.remove('active')); 
@@ -274,12 +248,14 @@
             if(target) target.classList.add('active'); 
             
             if(id === 'screen-menu') {
-                document.getElementById('global-chat-container').style.display = 'flex';
+                moveChat('menu-chat-anchor');
                 playMusic('menu.mp3');
                 if(myHunter) {
                     socket.emit('requestWorldRankings');
                     socket.emit('authRequest', {type:'login', u:myHunter.username, p:currentPass}); 
                 }
+            } else if (id === 'screen-game') {
+                moveChat('game-chat-anchor');
             } else if (id === 'screen-auth') {
                 document.getElementById('global-chat-container').style.display = 'none';
             }
@@ -293,8 +269,6 @@
             socket.emit('authRequest', { type, u, p }); 
         }
 
-        socket.on('authError', (msg) => alert(msg));
-        
         socket.on('authSuccess', (d) => { 
             myHunter = d;
             document.getElementById('st-name').innerText = d.username;
@@ -303,70 +277,35 @@
             document.getElementById('st-mp').innerText = `MP: ${d.mana}`;
             document.getElementById('st-stats').innerText = `WINS: ${d.wins || 0} | LOSSES: ${d.losses || 0}`;
             
-            const rankData = getHunterWorldRankData(d.username);
-            document.getElementById('st-world-rank').innerText = rankData.rankText;
-            document.getElementById('st-world-rank').style.color = rankData.color;
-
             if(document.getElementById('screen-auth').classList.contains('active')) showScreen('screen-menu'); 
         });
-
-        // --- WORLD RANKING DISPLAY LOGIC ---
-        function toggleRankLimit() {
-            showingFullRankings = !showingFullRankings;
-            document.getElementById('see-more-ranks').innerText = showingFullRankings ? "SEE LESS" : "SEE MORE";
-            renderRankings();
-        }
 
         function renderRankings() {
             const list = document.getElementById('world-rank-list');
             const limit = showingFullRankings ? 100 : 10;
             const playersToShow = currentWorldRankings.slice(0, limit);
-
-            list.innerHTML = playersToShow.map((h, i) => {
-                const color = getRankColor(i);
-                return `<div style="display:flex; justify-content:space-between; padding:5px; border-bottom:1px solid #222; font-weight:900; color:${color};">
-                    <span>#${i+1} ${h.username}</span> 
-                    <span style="color:var(--sys-blue);">${h.manapoints} MP</span>
-                </div>`;
-            }).join('') || "NO HUNTERS DETECTED";
+            list.innerHTML = playersToShow.map((h, i) => `<div style="display:flex; justify-content:space-between; padding:5px; border-bottom:1px solid #222; font-weight:900; color:${getRankColor(i)};"><span>#${i+1} ${h.username}</span><span style="color:var(--sys-blue);">${h.manapoints} MP</span></div>`).join('') || "NO HUNTERS";
         }
 
-        socket.on('updateWorldRankings', (l) => {
-            currentWorldRankings = l;
-            if (myHunter) {
-                const rankData = getHunterWorldRankData(myHunter.username);
-                const stWR = document.getElementById('st-world-rank');
-                stWR.innerText = rankData.rankText;
-                stWR.style.color = rankData.color;
-            }
-            renderRankings();
-        });
-
+        socket.on('updateWorldRankings', (l) => { currentWorldRankings = l; renderRankings(); });
         function openOnlineLobby() { showScreen('screen-online'); socket.emit('requestGateList'); }
         function createGate() { socket.emit('createGate', { name: document.getElementById('gn').value || "UNKNOWN GATE", host: myHunter.username }); }
         function confirmReady() { socket.emit('playerConfirm', { gateID: myRoomID }); document.getElementById('ready-btn').style.display='none'; }
         
         socket.on('updateGateList', (gates) => {
-            document.getElementById('gate-list').innerHTML = gates.map(g => `<div style="padding:10px; border-bottom:1px solid #222; display:flex; justify-content:space-between;"><span>${g.name} (${g.count}/4)</span> <button class="sys-btn" style="width:80px; padding:5px; margin:0; font-size:10px;" onclick="socket.emit('joinGate', {gateID:'${g.id}', user:myHunter.username})">JOIN</button></div>`).join('') || "NO GATES DETECTED";
+            document.getElementById('gate-list').innerHTML = gates.map(g => `<div style="padding:10px; border-bottom:1px solid #222; display:flex; justify-content:space-between;"><span>${g.name} (${g.count}/4)</span> <button class="sys-btn" style="width:80px; padding:5px; margin:0; font-size:10px;" onclick="socket.emit('joinGate', {gateID:'${g.id}', user:myHunter.username})">JOIN</button></div>`).join('') || "NO GATES";
         });
 
         socket.on('waitingRoomUpdate', (room) => {
             showScreen('screen-waiting');
             playMusic('waiting.mp3');
             myRoomID = room.id;
-            document.getElementById('wait-slots').innerHTML = room.players.map(p => {
-                const rankData = getHunterWorldRankData(p.name);
-                return `
-                <div style="padding:15px; border:2px solid ${p.confirmed?'lime':'#444'}; background:#000; font-weight:900; text-align:center;">
-                    <div style="font-size: 1.2rem;">${p.name}</div>
-                    <div style="font-size: 0.8rem; color:${rankData.color}; margin-top: 5px;">${rankData.rankText}</div>
-                </div>`;
-            }).join('');
+            document.getElementById('wait-slots').innerHTML = room.players.map(p => `<div style="padding:15px; border:2px solid ${p.confirmed?'lime':'#444'}; background:#000; font-weight:900;">${p.name}</div>`).join('');
             if(room.players.length >= 1) document.getElementById('ready-btn').style.display = 'block';
         });
 
         function startAI(diff) { 
-            resetGameUI();
+            resetGameUI(); // Ensure clean state before start
             socket.emit('startSoloAI', { user: myHunter.username, diff }); 
         }
 
@@ -383,50 +322,26 @@
             playMusic('gameplay.mp3');
         });
 
-        socket.on('battleStart', (d) => {
-            const p = document.getElementById('vs-panel');
-            const skillArea = document.getElementById('skill-area');
-            const title = document.getElementById('vs-title');
-            
-            p.style.display = 'flex';
-            skillArea.innerHTML = "";
-            document.getElementById('vs-fill').style.width = '0%';
-            document.getElementById('vs-data').innerHTML = `${d.hunter} <span style="color:red">VS</span> ${d.target}<br><span style="color:yellow; font-weight:900;">TARGET MP: ${d.targetMana}</span>`;
-            
-            if(d.powerUp) {
-                const btn = document.createElement('button');
-                btn.className = "skill-activate-btn";
-                btn.innerHTML = `${POWER_ICONS[d.powerUp] || ''} ACTIVATE ${d.powerUp}`;
-                btn.onclick = () => {
-                    socket.emit('activateSkill', { powerUp: d.powerUp });
-                    btn.remove();
-                    skillArea.innerHTML = `<span style="color:cyan; font-weight:900;">${d.powerUp} ENGAGED!</span>`;
-                };
-                skillArea.appendChild(btn);
-            }
-
-            setTimeout(() => document.getElementById('vs-fill').style.width = '100%', 50);
-            setTimeout(() => { p.style.display = 'none'; title.innerText = "COMBAT INITIATED"; title.style.color = "var(--sys-red)"; }, 5000);
-        });
-
+        // --- VICTORY SCREEN REDIRECT FIX ---
         socket.on('victoryEvent', (d) => {
             const vs = document.getElementById('victory-screen');
+            const timerTxt = document.getElementById('return-timer');
             vs.style.display = 'flex';
             document.getElementById('winner-name').innerText = d.winner.toUpperCase();
+            
+            let count = 5;
+            const interval = setInterval(() => {
+                count--;
+                timerTxt.innerText = `Returning to Profile in ${count}...`;
+                if(count <= 0) {
+                    clearInterval(interval);
+                    quitAction(); // This triggers the returnToProfile logic
+                }
+            }, 1000);
         });
 
         function quitAction() { socket.emit('quitGame'); }
         socket.on('returnToProfile', () => { resetGameUI(); showScreen('screen-menu'); });
-
-        socket.on('announcement', (txt) => { 
-            const board = document.getElementById('announcement-board');
-            let color = "red";
-            if (txt.includes("REAWAKENED") || txt.includes("RESURRECTED")) color = "cyan";
-            if (txt.includes("SILVER GATE")) color = "var(--sys-silver)";
-            
-            board.innerHTML += `<div style="color:${color}; margin-bottom:5px; border-left: 2px solid ${color}; padding-left: 5px;">[ALERT] ${txt}</div>`; 
-            board.scrollTop = board.scrollHeight;
-        });
 
         socket.on('gameStateUpdate', (s) => {
             const board = document.getElementById('game-board');
@@ -436,23 +351,17 @@
             const isTurn = s.players[s.turn].id === socket.id;
             
             const silverGate = Object.values(s.world).find(cell => cell.type === 'Silver');
-            if (silverGate) {
-                document.getElementById('tc-silver-container').style.display = 'block';
-                document.getElementById('silver-power').innerText = silverGate.mana;
-            } else {
-                document.getElementById('tc-silver-container').style.display = 'none';
-            }
+            document.getElementById('tc-silver-container').style.display = silverGate ? 'block' : 'none';
+            if(silverGate) document.getElementById('silver-power').innerText = silverGate.mana;
 
-            // Fixed random gate spawn counter display (cycles every 3 global turns)
             document.getElementById('tc-spawn').innerText = 3 - (s.globalTurns % 3);
             document.getElementById('turn-txt').innerText = isTurn ? ">> YOUR MOVE" : `>> ${s.players[s.turn].name.toUpperCase()} ACTING`;
 
             document.getElementById('party-list').innerHTML = s.players.map(p => {
                 let status = p.quit ? '(QUIT)' : (p.alive ? '' : '(KIA)');
-                let powerInfo = (p.id === socket.id && p.powerUp) ? `<div class="power-icon">${POWER_ICONS[p.powerUp]} ${p.powerUp}</div>` : "";
                 let rLabel = getShortRankLabel(p.mana); 
                 let manaInfo = p.id === socket.id ? `[MP: ${p.mana}]` : `[${rLabel}]`;
-                return `<div class="party-member" style="color:${p.quit ? '#444' : p.color}">${p.name} ${manaInfo} ${status} ${powerInfo}</div>`;
+                return `<div class="party-member" style="color:${p.quit ? '#444' : p.color}">${p.name} ${manaInfo} ${status}</div>`;
             }).join('');
 
             for(let y=0; y<15; y++) {
@@ -461,23 +370,17 @@
                     cell.className = 'cell';
                     if(s.world[`${x}-${y}`]) cell.style.backgroundColor = s.world[`${x}-${y}`].color;
                     
-                    const moveRange = s.mode === 'Monarch' ? 3 : 2;
                     const dist = Math.abs(me.x - x) + Math.abs(me.y - y);
-
-                    if(isTurn && dist <= moveRange && dist > 0) {
-                        if (!isPathBlockedClient(s, me.x, me.y, x, y)) {
-                            cell.classList.add('valid-move');
-                            cell.onclick = () => socket.emit('playerAction', { tx: x, ty: y });
-                        }
+                    if(isTurn && dist <= (s.mode === 'Monarch' ? 3 : 2) && dist > 0) {
+                        cell.classList.add('valid-move');
+                        cell.onclick = () => socket.emit('playerAction', { tx: x, ty: y });
                     }
 
                     s.players.forEach(p => {
                         if(p.alive && p.x === x && p.y === y) {
                             const h = document.createElement('div');
                             h.className = 'humanoid';
-                            let pwrTag = (p.id === socket.id && p.powerUp) ? `<span class="power-icon">${POWER_ICONS[p.powerUp]}</span>` : "";
-                            let shortRank = getShortRankLabel(p.mana);
-                            h.innerHTML = `<div class="name-tag" style="color:${p.color}">${p.name} (${shortRank})${pwrTag}</div>
+                            h.innerHTML = `<div class="name-tag" style="color:${p.color}">${p.name}</div>
                                            <div class="h-head" style="background:${p.color}"></div>
                                            <div class="h-body" style="background:${p.color}"></div>`;
                             cell.appendChild(h);
