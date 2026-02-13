@@ -72,7 +72,29 @@ function spawnGate(room) {
     room.world[`${x}-${y}`] = { type: 'mana', color: '#00ff00', power: power };
 }
 
+// SILVER GATE LOGIC: Spawns when only 1 player remains
+function spawnSilverGate(room) {
+    const x = Math.floor(Math.random() * 15);
+    const y = Math.floor(Math.random() * 15);
+    const power = Math.floor(Math.random() * 1001) + 500; // Power from 500 to 1500+
+    room.world[`${x}-${y}`] = { 
+        type: 'silver', 
+        color: '#c0c0c0', 
+        power: power,
+        rank: 'Silver'
+    };
+    io.to(room.id).emit('announcement', `WARNING: SILVER GATE MANIFESTED. POWER: ${power}`);
+}
+
 function broadcastGameState(room) { 
+    // Logic to check if only one player is alive to spawn Silver Gate
+    const alivePlayers = room.players.filter(p => p.alive && !p.quit);
+    const silverExists = Object.values(room.world).some(cell => cell.type === 'silver');
+
+    if (alivePlayers.length === 1 && !silverExists) {
+        spawnSilverGate(room);
+    }
+
     const sanitizedPlayers = room.players.map(p => {
         const shortRank = getShortRankLabel(p.mana);
         return {
@@ -97,10 +119,8 @@ io.on('connection', (socket) => {
         const rank = getDetailedRank(userMana);
 
         if (!roomId) {
-            // Global Lobby Chat
             io.emit('receiveGlobalMessage', { sender: senderName, text: message });
         } else {
-            // Waiting Room or In-Game Chat
             io.to(roomId).emit('receiveMessage', { 
                 sender: senderName, 
                 text: message, 
@@ -109,11 +129,16 @@ io.on('connection', (socket) => {
         }
     });
 
-    // 2. AUTHENTICATION (Fixes your Login Issues)
+    // 2. AUTHENTICATION (Fixed Priority #1)
     socket.on('authRequest', (data) => {
         const { type, u, p } = data;
+        
         if (type === 'signup') {
-            users[u] = { username: u, password: p, mana: 20, wins: 0, losses: 0 };
+            if (!users[u]) {
+                users[u] = { username: u, password: p, mana: 20, wins: 0, losses: 0 };
+            } else {
+                return socket.emit('authError', "HUNTER ID ALREADY EXISTS");
+            }
         }
         
         const user = users[u];
@@ -131,11 +156,20 @@ io.on('connection', (socket) => {
         }
     });
 
-    // 3. GATE/ROOM JOINING
+    // 3. WORLD RANKINGS (Required for UI transition)
+    socket.on('requestWorldRankings', () => {
+        const rankings = Object.values(users)
+            .sort((a, b) => b.mana - a.mana)
+            .slice(0, 10)
+            .map(u => ({ username: u.username, manapoints: u.mana }));
+        socket.emit('updateWorldRankings', rankings);
+    });
+
+    // 4. GATE/ROOM JOINING
     socket.on('joinGate', (data) => {
         const { gateID, user } = data;
         socket.join(gateID);
-        // Room logic initialization would go here
+        // Room initialization logic would trigger broadcastGameState here
     });
 
     socket.on('disconnect', () => {
