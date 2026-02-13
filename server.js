@@ -17,8 +17,11 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 // TRACKING
 let rooms = {};
-let connectedUsers = {}; // Maps username -> socket.id (Prevents duplicate logins)
+let connectedUsers = {}; 
+let adminSocketId = null;
 
+// CONFIGURATION
+const ADMIN_NAME = "Kei"; // THE SOLE RULER
 const AI_NAMES = ["Sung Jinwoo", "Cha Hae-In", "Baek Yoonho", "Choi Jong-In"];
 const PLAYER_COLORS = ['#00d2ff', '#ff3e3e', '#bcff00', '#ff00ff']; 
 const RANK_COLORS = { 'E': '#00ff00', 'D': '#99ff00', 'C': '#ffff00', 'B': '#ff9900', 'A': '#ff00ff', 'S': '#ff0000', 'Silver': '#ffffff' };
@@ -40,7 +43,6 @@ function getFullRankLabel(val) {
     return "Lower E-Rank";
 }
 
-// STRICT DISPLAY RANK (In-Game)
 function getDisplayRank(mana) {
     if (mana >= 901) return "Rank S";
     if (mana >= 701) return "Rank A";
@@ -59,60 +61,51 @@ function getSimpleRank(val) {
     return 'E';
 }
 
-// Helper to calculate World Rank based on HunterPoints (HuP)
 async function getWorldRankDisplay(username) {
     const { data } = await supabase.from('Hunters').select('username, hunterpoints').order('hunterpoints', { ascending: false });
     if (!data) return { label: '#??', color: '#888' };
-    
     const index = data.findIndex(u => u.username === username);
     if (index === -1) return { label: '#??', color: '#888' };
-
     const rank = index + 1;
     let color = '#fff'; 
     if (rank <= 3) color = '#ffcc00'; 
     else if (rank <= 10) color = '#ff003c'; 
-
     return { label: `#${rank}`, color: color };
 }
 
-// --- SYNC HELPERS ---
 async function broadcastWorldRankings() {
     const { data } = await supabase.from('Hunters').select('username, hunterpoints, wins, losses').order('hunterpoints', { ascending: false }).limit(100);
     if (data) {
         const formattedRankings = data.map(r => ({ 
             ...r, 
-            manapoints: r.hunterpoints, // Compatibility
+            manapoints: r.hunterpoints, 
             hunterpoints: r.hunterpoints,
-            rankLabel: getFullRankLabel(r.hunterpoints) 
+            rankLabel: getFullRankLabel(r.hunterpoints),
+            isAdmin: r.username === ADMIN_NAME // Flag for Frontend Glow/Crown
         }));
         io.emit('updateWorldRankings', formattedRankings);
     }
 }
 
 async function sendProfileUpdate(socket, username) {
-    // 1. Get User Data
     const { data: user } = await supabase.from('Hunters').select('*').eq('username', username).maybeSingle();
-    
-    // 2. Get Exact World Rank Position (Sync Fix)
-    // Counts how many players have MORE hunterpoints than this user
-    const { count } = await supabase
-        .from('Hunters')
-        .select('*', { count: 'exact', head: true })
-        .gt('hunterpoints', user ? user.hunterpoints : 0);
-        
+    const { count } = await supabase.from('Hunters').select('*', { count: 'exact', head: true }).gt('hunterpoints', user ? user.hunterpoints : 0);
     const exactRank = (count || 0) + 1;
 
     if (user) {
         const letter = getSimpleRank(user.hunterpoints);
+        const isAdmin = (user.username === ADMIN_NAME);
+        
         socket.emit('authSuccess', { 
             username: user.username, 
-            mana: user.hunterpoints, // HuP
+            mana: user.hunterpoints, 
             rank: getFullRankLabel(user.hunterpoints), 
             color: RANK_COLORS[letter],
             wins: user.wins || 0,
             losses: user.losses || 0,
-            worldRank: exactRank, // Send explicit rank number to frontend
-            music: null 
+            worldRank: exactRank,
+            music: null,
+            isAdmin: isAdmin
         });
     }
 }
@@ -148,11 +141,8 @@ async function processWin(room, winnerName) {
     
     io.to(room.id).emit('victoryEvent', { winner: winnerName });
     room.active = false;
-    
-    // Update everyone immediately
     broadcastWorldRankings();
 
-    // Specific update for the winner
     const winnerPlayer = room.players.find(p => p.name === winnerName);
     if(winnerPlayer) {
         const socket = io.sockets.sockets.get(winnerPlayer.id);
@@ -187,40 +177,75 @@ function isPathBlocked(room, x1, y1, x2, y2) {
 // --- SOCKET CONNECTION ---
 io.on('connection', (socket) => {
     
+    // --- ADMIN ACTIONS ---
+    socket.on('adminAction', (data) => {
+        if (socket.id !== adminSocketId) return; // Security Check
+
+        if (data.action === 'kick') {
+            const targetSocketId = connectedUsers[data.target];
+            if (targetSocketId) {
+                const targetSocket = io.sockets.sockets.get(targetSocketId);
+                if (targetSocket) {
+                    targetSocket.emit('authError', "SYSTEM: FORCED LOGOUT BY ADMINISTRATOR.");
+                    targetSocket.disconnect(true);
+                    delete connectedUsers[data.target];
+                    socket.emit('sysLog', `KICKED USER: ${data.target}`);
+                } else {
+                    socket.emit('sysLog', `USER ${data.target} NOT FOUND.`);
+                }
+            }
+        }
+        
+        if (data.action === 'broadcast') {
+            io.emit('receiveMessage', { 
+                sender: 'SYSTEM ADMIN', 
+                text: data.message, 
+                rank: 'ADMIN', 
+                timestamp: new Date().toLocaleTimeString(),
+                isAdmin: true
+            });
+             socket.emit('sysLog', `BROADCAST SENT.`);
+        }
+
+        if (data.action === 'spectate') {
+            const room = rooms[data.roomId];
+            if (room) {
+                socket.join(data.roomId);
+                socket.emit('gameStart', { roomId: data.roomId });
+                broadcastGameState(room);
+                socket.emit('sysLog', `SPECTATING ROOM: ${data.roomId}`);
+            } else {
+                socket.emit('sysLog', `ROOM ${data.roomId} NOT FOUND.`);
+            }
+        }
+    });
+
     socket.on('authRequest', async (data) => {
-        // 1. Prevent Duplicate Logins
-        // We check if the user is in our connected list AND if that socket is actually still connected
         if (connectedUsers[data.u]) {
             const oldSocket = io.sockets.sockets.get(connectedUsers[data.u]);
             if (oldSocket && oldSocket.connected) {
                 return socket.emit('authError', "HUNTER ALREADY ACTIVE ON ANOTHER TERMINAL.");
-            } else {
-                // If the socket ID in memory is stale/disconnected, remove it and proceed
-                delete connectedUsers[data.u];
-            }
+            } else { delete connectedUsers[data.u]; }
         }
 
         if (data.type === 'signup') {
-            // 2. Prevent Duplicate Registration
             const { data: existing } = await supabase.from('Hunters').select('username').eq('username', data.u).maybeSingle();
             if (existing) return socket.emit('authError', "HUNTER ID ALREADY REGISTERED.");
-            
-            // Create Account (Start 0 HuP)
             const { error } = await supabase.from('Hunters').insert([{ username: data.u, password: data.p, hunterpoints: 0, wins: 0, losses: 0 }]);
             if (error) return socket.emit('authError', "REGISTRATION FAILED.");
         }
 
-        // Login Check
         const { data: user } = await supabase.from('Hunters').select('*').eq('username', data.u).eq('password', data.p).maybeSingle();
         
         if (user) {
-            // Success
-            connectedUsers[user.username] = socket.id; // Track User
+            connectedUsers[user.username] = socket.id; 
             
-            // Get exact rank for profile sync
+            // --- ADMIN IDENTIFICATION ---
+            const isAdmin = (user.username === ADMIN_NAME);
+            if (isAdmin) adminSocketId = socket.id;
+
             const { count } = await supabase.from('Hunters').select('*', { count: 'exact', head: true }).gt('hunterpoints', user.hunterpoints);
             const exactRank = (count || 0) + 1;
-
             const letter = getSimpleRank(user.hunterpoints);
             
             socket.emit('authSuccess', { 
@@ -231,7 +256,8 @@ io.on('connection', (socket) => {
                 wins: user.wins || 0,
                 losses: user.losses || 0,
                 worldRank: exactRank,
-                music: 'menu.mp3'
+                music: 'menu.mp3',
+                isAdmin: isAdmin 
             });
             syncAllGates();
             broadcastWorldRankings(); 
@@ -249,7 +275,15 @@ io.on('connection', (socket) => {
         const { roomId, message, senderName } = data;
         const { data: user } = await supabase.from('Hunters').select('hunterpoints').eq('username', senderName).maybeSingle();
         const rank = user ? getDisplayRank(user.hunterpoints) : "Rank E"; 
-        const chatData = { sender: senderName, text: message, rank: rank, timestamp: new Date().toLocaleTimeString() };
+        
+        const chatData = { 
+            sender: senderName, 
+            text: message, 
+            rank: rank, 
+            timestamp: new Date().toLocaleTimeString(),
+            isAdmin: (senderName === ADMIN_NAME) // Flag for chat glow
+        };
+
         if (!roomId || roomId === 'global' || roomId === 'null') { io.emit('receiveMessage', chatData); } 
         else { io.to(roomId).emit('receiveMessage', chatData); }
     });
@@ -276,7 +310,8 @@ io.on('connection', (socket) => {
                 rankLabel: getFullRankLabel(initialInGameMana),
                 worldRankLabel: wrData.label,
                 worldRankColor: wrData.color,
-                alive: true, confirmed: false, color: PLAYER_COLORS[0], isAI: false, quit: false, powerUp: null 
+                alive: true, confirmed: false, color: PLAYER_COLORS[0], isAI: false, quit: false, powerUp: null,
+                isAdmin: (data.host === ADMIN_NAME) 
             }],
             world: {}
         };
@@ -303,7 +338,8 @@ io.on('connection', (socket) => {
                 rankLabel: getFullRankLabel(playerMana),
                 worldRankLabel: wrData.label,
                 worldRankColor: wrData.color,
-                alive: true, confirmed: false, color: PLAYER_COLORS[idx], isAI: false, quit: false, powerUp: null 
+                alive: true, confirmed: false, color: PLAYER_COLORS[idx], isAI: false, quit: false, powerUp: null,
+                isAdmin: (data.user === ADMIN_NAME) 
             });
             socket.join(data.gateID);
             io.to(data.gateID).emit('waitingRoomUpdate', room);
@@ -336,7 +372,7 @@ io.on('connection', (socket) => {
             id, active: true, turn: 0, isOnline: false, mode: data.diff, globalTurns: 0, survivorTurns: 0,
             respawnHappened: false,
             players: [
-                { id: socket.id, name: data.user, ...corners[0], mana: playerMana, rankLabel: getFullRankLabel(playerMana), alive: true, isAI: false, color: PLAYER_COLORS[0], quit: false, powerUp: null },
+                { id: socket.id, name: data.user, ...corners[0], mana: playerMana, rankLabel: getFullRankLabel(playerMana), alive: true, isAI: false, color: PLAYER_COLORS[0], quit: false, powerUp: null, isAdmin: (data.user === ADMIN_NAME) },
                 { id: 'ai1', name: AI_NAMES[1], ...corners[1], mana: 200, rankLabel: "Lower D-Rank", alive: true, isAI: true, color: PLAYER_COLORS[1], quit: false, powerUp: null },
                 { id: 'ai2', name: AI_NAMES[2], ...corners[2], mana: 233, rankLabel: "Higher D-Rank", alive: true, isAI: true, color: PLAYER_COLORS[2], quit: false, powerUp: null },
                 { id: 'ai3', name: AI_NAMES[3], ...corners[3], mana: 200, rankLabel: "Lower D-Rank", alive: true, isAI: true, color: PLAYER_COLORS[3], quit: false, powerUp: null }
@@ -361,22 +397,19 @@ io.on('connection', (socket) => {
         }
     });
 
-    // --- DISCONNECT HANDLING ---
     socket.on('disconnect', async () => { handleExit(socket); });
     socket.on('quitGame', async () => { handleExit(socket); });
 
     async function handleExit(s) {
-        // 1. Remove from Connected Users List (Allow re-login on refresh)
         const username = Object.keys(connectedUsers).find(u => connectedUsers[u] === s.id);
         if (username) delete connectedUsers[username];
+        if (s.id === adminSocketId) adminSocketId = null;
 
-        // 2. Handle In-Game Quit
         const room = Object.values(rooms).find(r => r.players.some(p => p.id === s.id));
         if (room) {
             const p = room.players.find(pl => pl.id === s.id);
             if (p && room.isOnline && !p.quit && room.active) {
                 p.quit = true; p.alive = false; 
-                // Quitter Punishment
                 const { data: u } = await supabase.from('Hunters').select('hunterpoints, losses').eq('username', p.name).maybeSingle();
                 if (u) await supabase.from('Hunters').update({ 
                     hunterpoints: Math.max(0, u.hunterpoints - 20),
@@ -385,8 +418,6 @@ io.on('connection', (socket) => {
                 
                 io.to(room.id).emit('announcement', `${p.name} ABANDONED THE QUEST. -20 HuP & LOSS RECORDED.`);
                 broadcastWorldRankings();
-                // Since they refreshed, we can't send 'returnToProfile' effectively to the OLD socket.
-                // The new connection will handle the UI state.
             }
             
             const activeHuman = room.players.filter(pl => !pl.quit && !pl.isAI);
@@ -406,6 +437,8 @@ io.on('connection', (socket) => {
     socket.on('playerAction', async (data) => {
         const room = Object.values(rooms).find(r => r.players.some(p => p.id === socket.id));
         if (!room || !room.active) return;
+        if (socket.id === adminSocketId && !room.players.some(p => p.id === adminSocketId)) return;
+
         const p = room.players[room.turn];
         if (!p || p.id !== socket.id) return;
         if (isPathBlocked(room, p.x, p.y, data.tx, data.ty)) {
@@ -418,6 +451,26 @@ io.on('connection', (socket) => {
         await resolveConflict(room, p);
         if (rooms[room.id]) advanceTurn(room);
     });
+
+    // UPDATED BROADCAST: Ensure PowerUps are sent to owner/admin
+    function broadcastGameState(room) { 
+        const roomClients = io.sockets.adapter.rooms.get(room.id);
+        if (roomClients) {
+            roomClients.forEach(socketId => {
+                const isSpectatingAdmin = (socketId === adminSocketId);
+                const sanitizedPlayers = room.players.map(p => ({
+                    ...p,
+                    // Mana visible to Owner OR Admin
+                    mana: (p.id === socketId || isSpectatingAdmin) ? p.mana : null, 
+                    // PowerUp visible to Owner OR Admin (Fix for missing icon)
+                    powerUp: (p.id === socketId || isSpectatingAdmin) ? p.powerUp : null,
+                    rankLabel: getFullRankLabel(p.mana), 
+                    displayRank: getDisplayRank(p.mana)
+                }));
+                io.to(socketId).emit('gameStateUpdate', { ...room, players: sanitizedPlayers });
+            });
+        }
+    }
 });
 
 async function resolveConflict(room, p) {
@@ -457,12 +510,11 @@ async function resolveConflict(room, p) {
             }
         });
         if (!combatCancelled) {
-            // PVP LOGIC (MP Exchange)
             if (pCalcMana >= oCalcMana) { 
                 p.mana += opponent.mana; 
                 opponent.alive = false; 
                 if (!opponent.isAI && room.isOnline) {
-                    await recordLoss(opponent.name, p.mana); // HuP
+                    await recordLoss(opponent.name, p.mana); 
                     const loserSocket = io.sockets.sockets.get(opponent.id);
                     if(loserSocket) sendProfileUpdate(loserSocket, opponent.name);
                     broadcastWorldRankings();
@@ -471,7 +523,7 @@ async function resolveConflict(room, p) {
                 opponent.mana += p.mana; 
                 p.alive = false; 
                 if (!p.isAI && room.isOnline) {
-                    await recordLoss(p.name, opponent.mana); // HuP
+                    await recordLoss(p.name, opponent.mana); 
                     const loserSocket = io.sockets.sockets.get(p.id);
                     if(loserSocket) sendProfileUpdate(loserSocket, p.name);
                     broadcastWorldRankings();
@@ -523,7 +575,7 @@ async function resolveConflict(room, p) {
             else { 
                 p.alive = false; 
                 if (!p.isAI && room.isOnline) {
-                    await recordLoss(p.name, gate.mana); // HuP
+                    await recordLoss(p.name, gate.mana);
                     const loserSocket = io.sockets.sockets.get(p.id);
                     if(loserSocket) sendProfileUpdate(loserSocket, p.name);
                     broadcastWorldRankings();
@@ -565,21 +617,6 @@ function spawnGate(room) {
     room.world[`${x}-${y}`] = { rank, color: RANK_COLORS[rank], mana: Math.floor(Math.random() * (range[1] - range[0] + 1)) + range[0] };
 }
 
-function broadcastGameState(room) { 
-    const roomClients = io.sockets.adapter.rooms.get(room.id);
-    if (roomClients) {
-        roomClients.forEach(socketId => {
-            const sanitizedPlayers = room.players.map(p => ({
-                ...p,
-                mana: (p.id === socketId) ? p.mana : null, // Hide Exact MP
-                rankLabel: getFullRankLabel(p.mana), 
-                displayRank: getDisplayRank(p.mana) // Strict Rank (S-E)
-            }));
-            io.to(socketId).emit('gameStateUpdate', { ...room, players: sanitizedPlayers });
-        });
-    }
-}
-
 function advanceTurn(room) {
     if (!rooms[room.id]) return; 
     const aliveCount = room.players.filter(p => p.alive).length;
@@ -589,7 +626,6 @@ function advanceTurn(room) {
     let attempts = 0;
     do { room.turn = (room.turn + 1) % room.players.length; attempts++; } while (!room.players[room.turn].alive && attempts < 10);
     
-    // SILVER GATE SPAWN - 1500-17000
     if (aliveCount === 1 && !Object.values(room.world).some(g => g.rank === 'Silver')) {
         let sx, sy, validPos = false;
         const survivor = room.players.find(p => p.alive);
