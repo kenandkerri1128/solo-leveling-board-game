@@ -15,13 +15,16 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 app.use(express.static(path.join(__dirname, 'public')));
 
+// TRACKING
 let rooms = {};
+let connectedUsers = {}; // Maps username -> socket.id (Prevents duplicate logins)
+
 const AI_NAMES = ["Sung Jinwoo", "Cha Hae-In", "Baek Yoonho", "Choi Jong-In"];
 const PLAYER_COLORS = ['#00d2ff', '#ff3e3e', '#bcff00', '#ff00ff']; 
 const RANK_COLORS = { 'E': '#00ff00', 'D': '#99ff00', 'C': '#ffff00', 'B': '#ff9900', 'A': '#ff00ff', 'S': '#ff0000', 'Silver': '#ffffff' };
 const POWER_UPS = ['DOUBLE DAMAGE', 'GHOST WALK', 'NETHER SWAP'];
 
-// --- RANKING HELPERS (Used for both HuP and MP formatting) ---
+// --- RANKING HELPERS ---
 function getFullRankLabel(val) {
     if (val >= 1000) return "Higher S-Rank";
     if (val >= 901) return "Lower S-Rank";
@@ -37,7 +40,7 @@ function getFullRankLabel(val) {
     return "Lower E-Rank";
 }
 
-// STRICT DISPLAY RANK (For In-Game Name Tags/Board based on MP)
+// STRICT DISPLAY RANK (In-Game)
 function getDisplayRank(mana) {
     if (mana >= 901) return "Rank S";
     if (mana >= 701) return "Rank A";
@@ -58,7 +61,6 @@ function getSimpleRank(val) {
 
 // Helper to calculate World Rank based on HunterPoints (HuP)
 async function getWorldRankDisplay(username) {
-    // UPDATED: Select 'hunterpoints' instead of 'manapoints'
     const { data } = await supabase.from('Hunters').select('username, hunterpoints').order('hunterpoints', { ascending: false });
     if (!data) return { label: '#??', color: '#888' };
     
@@ -66,24 +68,20 @@ async function getWorldRankDisplay(username) {
     if (index === -1) return { label: '#??', color: '#888' };
 
     const rank = index + 1;
-    let color = '#fff'; // Default White
-    if (rank <= 3) color = '#ffcc00'; // Gold
-    else if (rank <= 10) color = '#ff003c'; // Red
+    let color = '#fff'; 
+    if (rank <= 3) color = '#ffcc00'; 
+    else if (rank <= 10) color = '#ff003c'; 
 
     return { label: `#${rank}`, color: color };
 }
 
-// --- INSTANT UPDATE HELPERS ---
+// --- SYNC HELPERS ---
 async function broadcastWorldRankings() {
-    // UPDATED: Select 'hunterpoints'
     const { data } = await supabase.from('Hunters').select('username, hunterpoints, wins, losses').order('hunterpoints', { ascending: false }).limit(100);
     if (data) {
-        // Map 'hunterpoints' to 'manapoints' property for frontend compatibility OR send as hunterpoints if frontend updated
-        // For safety, we send 'manapoints' key to frontend containing HuP, unless frontend is fully updated.
-        // Based on prompt "front and backend... hunterpoints", I will send `hunterpoints`.
         const formattedRankings = data.map(r => ({ 
             ...r, 
-            manapoints: r.hunterpoints, // Keep compatibility just in case
+            manapoints: r.hunterpoints, // Compatibility
             hunterpoints: r.hunterpoints,
             rankLabel: getFullRankLabel(r.hunterpoints) 
         }));
@@ -92,38 +90,43 @@ async function broadcastWorldRankings() {
 }
 
 async function sendProfileUpdate(socket, username) {
+    // 1. Get User Data
     const { data: user } = await supabase.from('Hunters').select('*').eq('username', username).maybeSingle();
+    
+    // 2. Get Exact World Rank Position (Sync Fix)
+    // Counts how many players have MORE hunterpoints than this user
+    const { count } = await supabase
+        .from('Hunters')
+        .select('*', { count: 'exact', head: true })
+        .gt('hunterpoints', user ? user.hunterpoints : 0);
+        
+    const exactRank = (count || 0) + 1;
+
     if (user) {
         const letter = getSimpleRank(user.hunterpoints);
         socket.emit('authSuccess', { 
             username: user.username, 
-            mana: user.hunterpoints, // Frontend expects 'mana' for profile display currently, mapped to HuP
+            mana: user.hunterpoints, // HuP
             rank: getFullRankLabel(user.hunterpoints), 
             color: RANK_COLORS[letter],
             wins: user.wins || 0,
             losses: user.losses || 0,
+            worldRank: exactRank, // Send explicit rank number to frontend
             music: null 
         });
     }
 }
 
-// --- LOSS CALCULATION HELPER ---
+// --- GAME LOGIC HELPERS ---
 function calculateDeduction(winnerInGameMana) {
     const mpStr = winnerInGameMana.toString();
     let deduction = 0;
-    
-    if (winnerInGameMana >= 10000) {
-        // 5+ digits: Take first 2 digits
-        deduction = parseInt(mpStr.substring(0, 2));
-    } else {
-        // 1-4 digits: Take first digit
-        deduction = parseInt(mpStr.substring(0, 1));
-    }
-    return Math.max(1, deduction); // Minimum 1 HuP loss
+    if (winnerInGameMana >= 10000) deduction = parseInt(mpStr.substring(0, 2));
+    else deduction = parseInt(mpStr.substring(0, 1));
+    return Math.max(1, deduction);
 }
 
 async function recordLoss(username, winnerInGameMana) {
-    // UPDATED: Deduct from 'hunterpoints'
     const { data: u } = await supabase.from('Hunters').select('hunterpoints, losses').eq('username', username).maybeSingle();
     if (u) {
         const lossAmount = calculateDeduction(winnerInGameMana);
@@ -134,9 +137,7 @@ async function recordLoss(username, winnerInGameMana) {
     }
 }
 
-// --- WINNER LOGIC ---
 async function processWin(room, winnerName) {
-    // UPDATED: Add +20 to 'hunterpoints'
     const { data: u } = await supabase.from('Hunters').select('hunterpoints, wins').eq('username', winnerName).maybeSingle();
     if (u) {
         await supabase.from('Hunters').update({ 
@@ -147,8 +148,11 @@ async function processWin(room, winnerName) {
     
     io.to(room.id).emit('victoryEvent', { winner: winnerName });
     room.active = false;
+    
+    // Update everyone immediately
     broadcastWorldRankings();
 
+    // Specific update for the winner
     const winnerPlayer = room.players.find(p => p.name === winnerName);
     if(winnerPlayer) {
         const socket = io.sockets.sockets.get(winnerPlayer.id);
@@ -180,7 +184,62 @@ function isPathBlocked(room, x1, y1, x2, y2) {
     return false;
 }
 
+// --- SOCKET CONNECTION ---
 io.on('connection', (socket) => {
+    
+    socket.on('authRequest', async (data) => {
+        // 1. Prevent Duplicate Logins
+        // We check if the user is in our connected list AND if that socket is actually still connected
+        if (connectedUsers[data.u]) {
+            const oldSocket = io.sockets.sockets.get(connectedUsers[data.u]);
+            if (oldSocket && oldSocket.connected) {
+                return socket.emit('authError', "HUNTER ALREADY ACTIVE ON ANOTHER TERMINAL.");
+            } else {
+                // If the socket ID in memory is stale/disconnected, remove it and proceed
+                delete connectedUsers[data.u];
+            }
+        }
+
+        if (data.type === 'signup') {
+            // 2. Prevent Duplicate Registration
+            const { data: existing } = await supabase.from('Hunters').select('username').eq('username', data.u).maybeSingle();
+            if (existing) return socket.emit('authError', "HUNTER ID ALREADY REGISTERED.");
+            
+            // Create Account (Start 0 HuP)
+            const { error } = await supabase.from('Hunters').insert([{ username: data.u, password: data.p, hunterpoints: 0, wins: 0, losses: 0 }]);
+            if (error) return socket.emit('authError', "REGISTRATION FAILED.");
+        }
+
+        // Login Check
+        const { data: user } = await supabase.from('Hunters').select('*').eq('username', data.u).eq('password', data.p).maybeSingle();
+        
+        if (user) {
+            // Success
+            connectedUsers[user.username] = socket.id; // Track User
+            
+            // Get exact rank for profile sync
+            const { count } = await supabase.from('Hunters').select('*', { count: 'exact', head: true }).gt('hunterpoints', user.hunterpoints);
+            const exactRank = (count || 0) + 1;
+
+            const letter = getSimpleRank(user.hunterpoints);
+            
+            socket.emit('authSuccess', { 
+                username: user.username, 
+                mana: user.hunterpoints, 
+                rank: getFullRankLabel(user.hunterpoints), 
+                color: RANK_COLORS[letter],
+                wins: user.wins || 0,
+                losses: user.losses || 0,
+                worldRank: exactRank,
+                music: 'menu.mp3'
+            });
+            syncAllGates();
+            broadcastWorldRankings(); 
+        } else {
+            socket.emit('authError', "INVALID ACCESS CODE OR ID.");
+        }
+    });
+
     socket.on('joinChatRoom', (roomId) => {
         for (const room of socket.rooms) { if (room !== socket.id) socket.leave(room); }
         if (roomId) { socket.join(roomId); socket.emit('joinedRoom', roomId); socket.emit('clearChat'); }
@@ -188,7 +247,6 @@ io.on('connection', (socket) => {
 
     socket.on('sendMessage', async (data) => {
         const { roomId, message, senderName } = data;
-        // Chat rank based on HuP (World Rank)
         const { data: user } = await supabase.from('Hunters').select('hunterpoints').eq('username', senderName).maybeSingle();
         const rank = user ? getDisplayRank(user.hunterpoints) : "Rank E"; 
         const chatData = { sender: senderName, text: message, rank: rank, timestamp: new Date().toLocaleTimeString() };
@@ -196,43 +254,13 @@ io.on('connection', (socket) => {
         else { io.to(roomId).emit('receiveMessage', chatData); }
     });
 
-    socket.on('authRequest', async (data) => {
-        if (data.type === 'signup') {
-            const { data: existing } = await supabase.from('Hunters').select('username').eq('username', data.u).maybeSingle();
-            if (existing) return socket.emit('authError', "HUNTER ID ALREADY EXISTS");
-            // UPDATED: New accounts start with 0 HuP
-            await supabase.from('Hunters').insert([{ username: data.u, password: data.p, hunterpoints: 0, wins: 0, losses: 0 }]);
-        }
-        const { data: user } = await supabase.from('Hunters').select('*').eq('username', data.u).eq('password', data.p).maybeSingle();
-        if (user) {
-            const letter = getSimpleRank(user.hunterpoints);
-            socket.emit('authSuccess', { 
-                username: user.username, 
-                mana: user.hunterpoints, // Sending HuP for Profile Display
-                rank: getFullRankLabel(user.hunterpoints), 
-                color: RANK_COLORS[letter],
-                wins: user.wins || 0,
-                losses: user.losses || 0,
-                music: 'menu.mp3'
-            });
-            syncAllGates();
-            broadcastWorldRankings(); 
-        } else {
-            socket.emit('authError', "INVALID ACCESS CODE OR ID");
-        }
-    });
-
     socket.on('requestWorldRankings', async () => broadcastWorldRankings());
     socket.on('requestGateList', () => syncAllGates());
 
     const corners = [{x:0,y:0}, {x:14,y:0}, {x:0,y:14}, {x:14,y:14}];
 
-    // --- GAME INITIALIZATION (MP LOGIC) ---
-    // All games start with random 50-300 MP regardless of HuP
-
     socket.on('createGate', async (data) => {
         const id = `gate_${Date.now()}`;
-        // UPDATED: Random In-Game MP (50-300)
         const initialInGameMana = Math.floor(Math.random() * 251) + 50;
         const wrData = await getWorldRankDisplay(data.host);
 
@@ -244,7 +272,7 @@ io.on('connection', (socket) => {
                 name: data.host, 
                 x: corners[0].x, 
                 y: corners[0].y, 
-                mana: initialInGameMana, // Set In-Game MP
+                mana: initialInGameMana, 
                 rankLabel: getFullRankLabel(initialInGameMana),
                 worldRankLabel: wrData.label,
                 worldRankColor: wrData.color,
@@ -263,7 +291,6 @@ io.on('connection', (socket) => {
         if (room && room.players.length < 4) {
             if (room.players.some(p => p.name === data.user)) return; 
             const idx = room.players.length;
-            // UPDATED: Random In-Game MP (50-300)
             const playerMana = Math.floor(Math.random() * 251) + 50;
             const wrData = await getWorldRankDisplay(data.user);
 
@@ -272,7 +299,7 @@ io.on('connection', (socket) => {
                 name: data.user, 
                 x: corners[idx].x, 
                 y: corners[idx].y, 
-                mana: playerMana, // Set In-Game MP
+                mana: playerMana, 
                 rankLabel: getFullRankLabel(playerMana),
                 worldRankLabel: wrData.label,
                 worldRankColor: wrData.color,
@@ -303,7 +330,6 @@ io.on('connection', (socket) => {
 
     socket.on('startSoloAI', async (data) => {
         const id = `solo_${socket.id}_${Date.now()}`;
-        // UPDATED: Random In-Game MP (50-300)
         const playerMana = Math.floor(Math.random() * 251) + 50;
 
         rooms[id] = {
@@ -335,16 +361,22 @@ io.on('connection', (socket) => {
         }
     });
 
+    // --- DISCONNECT HANDLING ---
     socket.on('disconnect', async () => { handleExit(socket); });
     socket.on('quitGame', async () => { handleExit(socket); });
 
     async function handleExit(s) {
+        // 1. Remove from Connected Users List (Allow re-login on refresh)
+        const username = Object.keys(connectedUsers).find(u => connectedUsers[u] === s.id);
+        if (username) delete connectedUsers[username];
+
+        // 2. Handle In-Game Quit
         const room = Object.values(rooms).find(r => r.players.some(p => p.id === s.id));
         if (room) {
             const p = room.players.find(pl => pl.id === s.id);
             if (p && room.isOnline && !p.quit && room.active) {
                 p.quit = true; p.alive = false; 
-                // Quitter Punishment: -20 HuP
+                // Quitter Punishment
                 const { data: u } = await supabase.from('Hunters').select('hunterpoints, losses').eq('username', p.name).maybeSingle();
                 if (u) await supabase.from('Hunters').update({ 
                     hunterpoints: Math.max(0, u.hunterpoints - 20),
@@ -353,7 +385,8 @@ io.on('connection', (socket) => {
                 
                 io.to(room.id).emit('announcement', `${p.name} ABANDONED THE QUEST. -20 HuP & LOSS RECORDED.`);
                 broadcastWorldRankings();
-                sendProfileUpdate(s, p.name);
+                // Since they refreshed, we can't send 'returnToProfile' effectively to the OLD socket.
+                // The new connection will handle the UI state.
             }
             
             const activeHuman = room.players.filter(pl => !pl.quit && !pl.isAI);
@@ -367,8 +400,6 @@ io.on('connection', (socket) => {
                 delete rooms[room.id];
             } else { broadcastGameState(room); }
             syncAllGates();
-            s.emit('playMusic', 'menu.mp3');
-            s.emit('returnToProfile');
         }
     }
 
@@ -431,7 +462,7 @@ async function resolveConflict(room, p) {
                 p.mana += opponent.mana; 
                 opponent.alive = false; 
                 if (!opponent.isAI && room.isOnline) {
-                    await recordLoss(opponent.name, p.mana); // Record Loss on HuP
+                    await recordLoss(opponent.name, p.mana); // HuP
                     const loserSocket = io.sockets.sockets.get(opponent.id);
                     if(loserSocket) sendProfileUpdate(loserSocket, opponent.name);
                     broadcastWorldRankings();
@@ -440,7 +471,7 @@ async function resolveConflict(room, p) {
                 opponent.mana += p.mana; 
                 p.alive = false; 
                 if (!p.isAI && room.isOnline) {
-                    await recordLoss(p.name, opponent.mana); // Record Loss on HuP
+                    await recordLoss(p.name, opponent.mana); // HuP
                     const loserSocket = io.sockets.sockets.get(p.id);
                     if(loserSocket) sendProfileUpdate(loserSocket, p.name);
                     broadcastWorldRankings();
@@ -492,7 +523,7 @@ async function resolveConflict(room, p) {
             else { 
                 p.alive = false; 
                 if (!p.isAI && room.isOnline) {
-                    await recordLoss(p.name, gate.mana); // Record Loss on HuP
+                    await recordLoss(p.name, gate.mana); // HuP
                     const loserSocket = io.sockets.sockets.get(p.id);
                     if(loserSocket) sendProfileUpdate(loserSocket, p.name);
                     broadcastWorldRankings();
@@ -558,7 +589,7 @@ function advanceTurn(room) {
     let attempts = 0;
     do { room.turn = (room.turn + 1) % room.players.length; attempts++; } while (!room.players[room.turn].alive && attempts < 10);
     
-    // SILVER GATE SPAWN - REVERTED TO 1500-17000
+    // SILVER GATE SPAWN - 1500-17000
     if (aliveCount === 1 && !Object.values(room.world).some(g => g.rank === 'Silver')) {
         let sx, sy, validPos = false;
         const survivor = room.players.find(p => p.alive);
@@ -569,7 +600,6 @@ function advanceTurn(room) {
         }
         if (!validPos) { do { sx = Math.floor(Math.random()*15); sy = Math.floor(Math.random()*15); } while (room.players.some(p => p.alive && p.x === sx && p.y === sy)); }
         
-        // REVERTED: 1,500 to 17,000 MP
         const silverMana = Math.floor(Math.random() * 15501) + 1500;
         room.world[`${sx}-${sy}`] = { rank: 'Silver', color: '#fff', mana: silverMana };
         io.to(room.id).emit('announcement', "SYSTEM: THE SILVER GATE HAS APPEARED NEARBY.");
