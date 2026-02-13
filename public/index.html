@@ -353,9 +353,10 @@
             if(myRoomID !== room.id) socket.emit('joinChatRoom', room.id);
 
             const container = document.getElementById('waiting-list');
+            // FIX: Using worldRankLabel and worldRankColor from server
             container.innerHTML = room.players.map(p => 
                 `<div style="padding:10px; border-bottom:1px solid #333; display:flex; justify-content:space-between; color:${p.color}">
-                    <span>${p.name} [${getShortRankLabel(p.mana)}]</span>
+                    <span>${p.name} <span style="color:${p.worldRankColor}; font-size:10px;">(${p.worldRankLabel || 'RANK ?'})</span></span>
                     <span>${p.confirmed ? '<b style="color:var(--sys-green)">READY</b>' : 'WAITING'}</span>
                 </div>`
             ).join('');
@@ -403,7 +404,8 @@
             showScreen('screen-game'); 
         });
 
-        socket.on('battleInitiated', (data) => {
+        // FIX: VS Screen Handler
+        socket.on('battleStart', (data) => {
             const vsPanel = document.getElementById('vs-panel');
             const vsData = document.getElementById('vs-data');
             const vsFill = document.getElementById('vs-fill');
@@ -416,29 +418,28 @@
             vsFill.style.transition = '5s linear';
             vsFill.style.width = '100%';
 
-            const isDefenderMe = data.defender.id === socket.id;
-            const defenderMPDisplay = isDefenderMe ? data.defender.mana : getShortRankLabel(data.defender.mana);
-
             // Use Colors from Server
             const attackerColor = data.hunterColor || '#fff';
             const defenderColor = data.targetColor || '#fff';
 
             vsData.innerHTML = `
                 <div style="font-weight:900; color:white;">
-                    <span style="color:${attackerColor}">${data.attacker.name}</span> 
+                    <span style="color:${attackerColor}">${data.hunter}</span> 
                     <span style="color:var(--sys-red)">VS</span> 
-                    <span style="color:${defenderColor}">${data.defender.name}</span>
+                    <span style="color:${defenderColor}">${data.target}</span>
                 </div>
-                <div style="font-size:12px; color:var(--sys-blue); margin-top:5px;">DEFENDER RANK: ${defenderMPDisplay}</div>
+                <div style="font-size:12px; color:var(--sys-blue); margin-top:5px;">DEFENDER RANK: ${data.targetRank}</div>
             `;
 
             skillArea.innerHTML = "";
-            if (data.attacker.id === socket.id && data.attacker.powerup) {
+            
+            // Only show button if I am the hunter (attacker) AND I have a powerup
+            if (data.hunter === myHunter.username && data.hunterPowerUp) {
                 const btn = document.createElement('button');
                 btn.className = 'skill-activate-btn';
-                btn.innerHTML = `ACTIVATE ${POWER_ICONS[data.attacker.powerup] || ''} ${data.attacker.powerup}`;
+                btn.innerHTML = `ACTIVATE ${POWER_ICONS[data.hunterPowerUp] || ''} ${data.hunterPowerUp}`;
                 btn.onclick = () => {
-                    socket.emit('usePowerUp');
+                    socket.emit('activateSkill', { powerUp: data.hunterPowerUp });
                     btn.disabled = true;
                     btn.style.opacity = '0.5';
                     btn.innerText = "SKILL ACTIVE";
