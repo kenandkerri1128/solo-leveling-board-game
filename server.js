@@ -90,7 +90,7 @@ function isPathBlocked(room, x1, y1, x2, y2) {
 }
 
 io.on('connection', (socket) => {
-    // FIX: Completely leave old rooms to prevent chat leakage
+    // FIX: CHAT VISIBILITY - Emitting joinedRoom so client knows to switch chat
     socket.on('joinChatRoom', (roomId) => {
         for (const room of socket.rooms) {
             if (room !== socket.id) socket.leave(room);
@@ -98,6 +98,7 @@ io.on('connection', (socket) => {
         
         if (roomId) {
             socket.join(roomId);
+            socket.emit('joinedRoom', roomId); // <--- VITAL FIX
             socket.emit('clearChat');
         }
     });
@@ -157,7 +158,6 @@ io.on('connection', (socket) => {
         const { data: user } = await supabase.from('Hunters').select('manapoints').eq('username', data.host).maybeSingle();
         const initialMana = user ? user.manapoints : Math.floor(Math.random()*201)+100;
         
-        // Fetch World Rank for Waiting Room
         const wrData = await getWorldRankDisplay(data.host);
 
         rooms[id] = {
@@ -170,11 +170,8 @@ io.on('connection', (socket) => {
                 y: corners[0].y, 
                 mana: initialMana, 
                 rankLabel: getFullRankLabel(initialMana),
-                
-                // ADDED: World Rank Data
                 worldRankLabel: wrData.label,
                 worldRankColor: wrData.color,
-
                 alive: true, 
                 confirmed: false, 
                 color: PLAYER_COLORS[0], 
@@ -198,7 +195,6 @@ io.on('connection', (socket) => {
             const { data: user } = await supabase.from('Hunters').select('manapoints').eq('username', data.user).maybeSingle();
             const playerMana = user ? user.manapoints : Math.floor(Math.random()*201)+100;
 
-            // Fetch World Rank for Waiting Room
             const wrData = await getWorldRankDisplay(data.user);
 
             room.players.push({ 
@@ -208,11 +204,8 @@ io.on('connection', (socket) => {
                 y: corners[idx].y, 
                 mana: playerMana, 
                 rankLabel: getFullRankLabel(playerMana),
-                
-                // ADDED: World Rank Data
                 worldRankLabel: wrData.label,
                 worldRankColor: wrData.color,
-
                 alive: true, 
                 confirmed: false, 
                 color: PLAYER_COLORS[idx], 
@@ -286,6 +279,7 @@ io.on('connection', (socket) => {
             const p = room.players.find(pl => pl.id === s.id);
             if (p && room.isOnline && !p.quit && room.active) {
                 p.quit = true; p.alive = false; 
+                // QUITTER PUNISHMENT
                 const { data: u } = await supabase.from('Hunters').select('manapoints, losses').eq('username', p.name).maybeSingle();
                 if (u) await supabase.from('Hunters').update({ 
                     manapoints: Math.max(0, u.manapoints - 20),
@@ -293,18 +287,27 @@ io.on('connection', (socket) => {
                 }).eq('username', p.name);
                 io.to(room.id).emit('announcement', `${p.name} ABANDONED THE QUEST. -20 MP & LOSS RECORDED.`);
             }
+            
+            // WINNER CHECK (Immediate +20 MP if only one human left)
             const activeHuman = room.players.filter(pl => !pl.quit && !pl.isAI);
             if (activeHuman.length === 1 && room.active && room.isOnline) {
                 const winner = activeHuman[0];
                 const { data: u } = await supabase.from('Hunters').select('manapoints, wins').eq('username', winner.name).maybeSingle();
-                if (u) await supabase.from('Hunters').update({ manapoints: u.manapoints + 20, wins: (u.wins || 0) + 1 }).eq('username', winner.name);
+                if (u) await supabase.from('Hunters').update({ 
+                    manapoints: u.manapoints + 20, 
+                    wins: (u.wins || 0) + 1 
+                }).eq('username', winner.name);
+                
                 io.to(room.id).emit('victoryEvent', { winner: winner.name });
+                room.active = false; // Prevent further turns
+                
                 setTimeout(() => { 
                     io.to(room.id).emit('returnToProfile');
                     if(rooms[room.id]) delete rooms[room.id]; 
                     syncAllGates(); 
                 }, 5000);
             }
+            
             if (!room.active) room.players = room.players.filter(pl => pl.id !== s.id);
             if (room.players.length === 0 || room.players.every(pl => pl.isAI && !room.active)) {
                 delete rooms[room.id];
@@ -338,16 +341,16 @@ async function resolveConflict(room, p) {
     const aliveCount = room.players.filter(pl => pl.alive).length;
     
     if (opponent) {
-        // FIX: Added hunterPowerUp to the payload so the button shows up
+        // FIX: targetRank now sends MP (e.g., 10500) so frontend displays that instead of "Rank S"
         io.to(room.id).emit('battleStart', { 
             hunter: p.name, 
             hunterMana: p.mana,
             hunterColor: p.color, 
-            hunterPowerUp: p.powerUp, // <--- ADDED
+            hunterPowerUp: p.powerUp, 
             target: opponent.name, 
             targetId: opponent.id, 
             targetMana: opponent.mana,
-            targetRank: getFullRankLabel(opponent.mana),
+            targetRank: `MP: ${opponent.mana}`, // <--- CHANGED TO MP
             targetColor: opponent.color 
         });
         await new Promise(r => setTimeout(r, 6000));
@@ -371,33 +374,32 @@ async function resolveConflict(room, p) {
             }
         });
         if (!combatCancelled) {
-            // PVP LOSS LOGIC FIX
+            // PVP LOSS LOGIC
             if (pCalcMana >= oCalcMana) { 
                 p.mana += opponent.mana; 
                 opponent.alive = false; 
-                // Loser (Opponent) loses MP based on Winner's (P) IN-GAME mana (first digit)
                 if (!opponent.isAI && room.isOnline) recordLoss(opponent.name, p.mana); 
             } else { 
                 opponent.mana += p.mana; 
                 p.alive = false; 
-                // Loser (P) loses MP based on Winner's (Opponent) IN-GAME mana (first digit)
                 if (!p.isAI && room.isOnline) recordLoss(p.name, opponent.mana); 
             }
         }
+        // FIX: HIDE VS SCREEN
+        io.to(room.id).emit('battleEnd');
         return;
     }
 
     if (room.world[coord]) {
         const gate = room.world[coord];
-        // FIX: Added hunterPowerUp here too
         io.to(room.id).emit('battleStart', { 
             hunter: p.name, 
             hunterMana: p.mana,
             hunterColor: p.color, 
-            hunterPowerUp: p.powerUp, // <--- ADDED
+            hunterPowerUp: p.powerUp, 
             target: `RANK ${gate.rank}`, 
             targetMana: gate.mana,
-            targetRank: gate.rank,
+            targetRank: `MP: ${gate.mana}`, // <--- CHANGED TO MP
             targetColor: gate.color 
         });
         await new Promise(r => setTimeout(r, 6000));
@@ -427,13 +429,15 @@ async function resolveConflict(room, p) {
             if (aliveCount === 1) triggerRespawn(room, p.id);
             else { p.alive = false; if (!p.isAI && room.isOnline) recordLoss(p.name, gate.mana); }
         }
+        // FIX: HIDE VS SCREEN
+        io.to(room.id).emit('battleEnd');
     }
 }
 
 async function recordLoss(username, winnerMana) {
     const { data: u } = await supabase.from('Hunters').select('manapoints, losses').eq('username', username).maybeSingle();
     if (u) {
-        // Logic: First digit of winner's mana (e.g., 10500 -> '1' -> 1 MP loss)
+        // First digit logic preserved
         const lossAmount = parseInt(winnerMana.toString()[0]) || 1;
         await supabase.from('Hunters').update({ manapoints: Math.max(0, u.manapoints - lossAmount), losses: (u.losses || 0) + 1 }).eq('username', username);
     }
