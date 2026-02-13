@@ -3,15 +3,18 @@ const app = express();
 const http = require('http').createServer(app);
 const io = require('socket.io')(http);
 const path = require('path');
+const { createClient } = require('@supabase/supabase-base-js'); // Ensure this is installed!
+
+// --- DATABASE CONNECTION ---
+// Replace these with your actual Supabase credentials!
+const supabase = createClient('YOUR_SUPABASE_URL', 'YOUR_SUPABASE_KEY');
 
 app.use(express.static(path.join(__dirname, 'public')));
 
 // --- GAME DATA ---
 const rooms = {};
-const users = {}; // Simulated database for logins
 
-// --- UPDATED RANKING HELPERS ---
-
+// --- RANKING HELPERS ---
 function getDetailedRank(mana) {
     if (mana >= 1000) return "HIGHER S";
     if (mana >= 901) return "LOWER S";
@@ -37,34 +40,6 @@ function getShortRankLabel(mana) {
 }
 
 // --- CORE LOGIC ---
-
-function triggerRespawn(room, lastPlayerId) {
-    const candidates = room.players.filter(p => !p.quit);
-    if (candidates.length === 0) { delete rooms[room.id]; return; }
-    
-    room.respawnHappened = true; 
-
-    candidates.forEach(pl => { 
-        if (pl.id !== lastPlayerId) {
-            const resurrectionBonus = Math.floor(Math.random() * 1001) + 500;
-            pl.mana += resurrectionBonus; 
-        }
-        pl.alive = true;
-        pl.rankLabel = getShortRankLabel(pl.mana);
-    });
-    
-    room.world = {}; 
-    room.globalTurns = 0;
-    room.survivorTurns = 0; 
-    const lastPlayerIdx = room.players.findIndex(pl => pl.id === lastPlayerId);
-    room.turn = lastPlayerIdx;
-
-    // Standard gate spawns on reset
-    for(let i=0; i<5; i++) spawnGate(room); 
-    io.to(room.id).emit('announcement', `SYSTEM: QUEST FAILED. ALL HUNTERS REAWAKENED.`);
-    broadcastGameState(room);
-}
-
 function spawnGate(room) {
     const x = Math.floor(Math.random() * 15);
     const y = Math.floor(Math.random() * 15);
@@ -72,11 +47,10 @@ function spawnGate(room) {
     room.world[`${x}-${y}`] = { type: 'mana', color: '#00ff00', power: power };
 }
 
-// SILVER GATE LOGIC: Spawns when only 1 player remains
 function spawnSilverGate(room) {
     const x = Math.floor(Math.random() * 15);
     const y = Math.floor(Math.random() * 15);
-    const power = Math.floor(Math.random() * 1001) + 500; // Power from 500 to 1500+
+    const power = Math.floor(Math.random() * 1001) + 500;
     room.world[`${x}-${y}`] = { 
         type: 'silver', 
         color: '#c0c0c0', 
@@ -87,7 +61,6 @@ function spawnSilverGate(room) {
 }
 
 function broadcastGameState(room) { 
-    // Logic to check if only one player is alive to spawn Silver Gate
     const alivePlayers = room.players.filter(p => p.alive && !p.quit);
     const silverExists = Object.values(room.world).some(cell => cell.type === 'silver');
 
@@ -104,45 +77,29 @@ function broadcastGameState(room) {
         };
     });
     
-    const state = { ...room, players: sanitizedPlayers };
-    io.to(room.id).emit('gameStateUpdate', state); 
+    io.to(room.id).emit('gameStateUpdate', { ...room, players: sanitizedPlayers }); 
 }
 
-// --- SOCKET CONNECTION & CHAT SYSTEM ---
-
+// --- SOCKET CONNECTION ---
 io.on('connection', (socket) => {
     
-    // 1. MULTIPLAYER CHAT HANDLER
-    socket.on('sendMessage', (data) => {
-        const { roomId, message, senderName } = data;
-        const userMana = users[senderName]?.mana || 0;
-        const rank = getDetailedRank(userMana);
-
-        if (!roomId) {
-            io.emit('receiveGlobalMessage', { sender: senderName, text: message });
-        } else {
-            io.to(roomId).emit('receiveMessage', { 
-                sender: senderName, 
-                text: message, 
-                rank: rank 
-            });
-        }
-    });
-
-    // 2. AUTHENTICATION (Fixed Priority #1)
-    socket.on('authRequest', (data) => {
+    // 1. LOGIN / SIGNUP WITH SUPABASE
+    socket.on('authRequest', async (data) => {
         const { type, u, p } = data;
         
         if (type === 'signup') {
-            if (!users[u]) {
-                users[u] = { username: u, password: p, mana: 20, wins: 0, losses: 0 };
-            } else {
-                return socket.emit('authError', "HUNTER ID ALREADY EXISTS");
-            }
+            const { data: existing } = await supabase.from('hunters').select('*').eq('username', u).single();
+            if (existing) return socket.emit('authError', "HUNTER ID ALREADY EXISTS");
+
+            await supabase.from('hunters').insert([
+                { username: u, password: p, mana: 20, wins: 0, losses: 0 }
+            ]);
         }
         
-        const user = users[u];
-        if (user && user.password === p) {
+        // Fetch User from Supabase
+        const { data: user, error } = await supabase.from('hunters').select('*').eq('username', u).eq('password', p).single();
+
+        if (user) {
             socket.emit('authSuccess', {
                 username: user.username,
                 mana: user.mana,
@@ -156,28 +113,33 @@ io.on('connection', (socket) => {
         }
     });
 
-    // 3. WORLD RANKINGS (Required for UI transition)
-    socket.on('requestWorldRankings', () => {
-        const rankings = Object.values(users)
-            .sort((a, b) => b.mana - a.mana)
-            .slice(0, 10)
-            .map(u => ({ username: u.username, manapoints: u.mana }));
-        socket.emit('updateWorldRankings', rankings);
+    // 2. WORLD RANKINGS FROM SUPABASE
+    socket.on('requestWorldRankings', async () => {
+        const { data: rankings } = await supabase
+            .from('hunters')
+            .select('username, mana')
+            .order('mana', { ascending: false })
+            .limit(10);
+            
+        socket.emit('updateWorldRankings', rankings.map(u => ({ username: u.username, manapoints: u.mana })));
     });
 
-    // 4. GATE/ROOM JOINING
-    socket.on('joinGate', (data) => {
-        const { gateID, user } = data;
-        socket.join(gateID);
-        // Room initialization logic would trigger broadcastGameState here
+    socket.on('sendMessage', async (data) => {
+        const { roomId, message, senderName } = data;
+        
+        // Fetch rank dynamically for chat
+        const { data: user } = await supabase.from('hunters').select('mana').eq('username', senderName).single();
+        const rank = getDetailedRank(user?.mana || 0);
+
+        if (!roomId) {
+            io.emit('receiveGlobalMessage', { sender: senderName, text: message });
+        } else {
+            io.to(roomId).emit('receiveMessage', { sender: senderName, text: message, rank: rank });
+        }
     });
 
-    socket.on('disconnect', () => {
-        console.log('Hunter disconnected');
-    });
+    socket.on('disconnect', () => { console.log('Hunter disconnected'); });
 });
 
 const PORT = process.env.PORT || 3000;
-http.listen(PORT, () => {
-    console.log(`System Online on Port ${PORT}`);
-});
+http.listen(PORT, () => console.log(`System Online on Port ${PORT}`));
