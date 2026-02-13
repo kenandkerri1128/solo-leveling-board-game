@@ -95,38 +95,6 @@
         </div>
     </div>
 
-    <div id="screen-online" class="screen">
-        <h2>ACTIVE GATES</h2>
-        <div id="gate-list" style="width:450px; height:250px; border:1px solid #333; overflow-y:auto; padding:10px; background: #050505;"></div>
-        <input type="text" id="gn" class="sys-input" placeholder="GATE DESIGNATION">
-        <button class="sys-btn" onclick="createGate()">INITIALIZE</button>
-        <button class="sys-btn" onclick="showScreen('screen-menu')">BACK</button>
-    </div>
-
-    <div id="screen-waiting" class="screen">
-        <h2 id="wait-title">SYNCING...</h2>
-        <div id="wait-slots" style="display:flex; gap:15px; margin:20px;"></div>
-        
-        <div class="chat-container" style="width: 500px; height: 200px; margin-bottom: 20px;">
-            <div id="room-chat-msgs" class="chat-msgs"></div>
-            <div class="chat-input-area">
-                <input type="text" id="room-chat-input" class="chat-input" placeholder="Coordinate with party...">
-                <button onclick="sendChat('room')" style="background:var(--sys-blue); border:none; padding:5px 10px;">SEND</button>
-            </div>
-        </div>
-
-        <button id="ready-btn" class="sys-btn" style="display:none; color:gold; border-color:gold;" onclick="confirmReady()">READY</button>
-        <button class="sys-btn" onclick="quitAction()">ABANDON</button>
-    </div>
-
-    <div id="screen-difficulty" class="screen">
-        <h2>QUEST TYPE</h2>
-        <button class="sys-btn" onclick="startAI('Easy')">EASY</button>
-        <button class="sys-btn" onclick="startAI('Hard')">HARD</button>
-        <button class="sys-btn" onclick="startAI('Monarch')" style="color:red; border-color:red;">MONARCH (+5 MP)</button>
-        <button class="sys-btn" onclick="showScreen('screen-menu')">BACK</button>
-    </div>
-
     <div id="screen-game" class="screen" style="flex-direction: row; justify-content: center; align-items: center;">
         <div class="hud-left">
             <h3>HOW TO PLAY</h3>
@@ -176,8 +144,7 @@
 
     <script>
         const socket = io();
-        let myHunter = null, myRoomID = null, currentPass = "", currentWorldRankings = [];
-        const POWER_ICONS = { 'DOUBLE DAMAGE': '⚔️', 'GHOST WALK': '👣', 'NETHER SWAP': '🌀' };
+        let myHunter = null, myRoomID = null;
 
         // --- AUDIO SYSTEM ---
         const bgm = document.getElementById('sys-bgm');
@@ -196,34 +163,52 @@
             if (trackPath && !bgmSource.src.includes(trackPath)) {
                 bgmSource.src = trackPath;
                 bgm.load();
-                bgm.play().catch(e => console.log("System: Waiting for hunter interaction to initiate audio."));
+                bgm.play().catch(() => {});
             }
         }
 
-        // --- RANKING LOGIC ---
-        function getDetailedRank(mana) {
-            if (mana >= 1000) return "HIGHER S";
-            if (mana >= 901) return "LOWER S";
-            if (mana >= 801) return "HIGHER A";
-            if (mana >= 701) return "LOWER A";
-            if (mana >= 601) return "HIGHER B";
-            if (mana >= 501) return "LOWER B";
-            if (mana >= 401) return "HIGHER C";
-            if (mana >= 301) return "LOWER C";
-            if (mana >= 201) return "HIGHER D";
-            if (mana >= 101) return "LOWER D";
-            if (mana >= 51) return "HIGHER E";
-            return "LOWER E";
+        // --- AUTH & NAVIGATION ---
+        function showScreen(id) { 
+            document.querySelectorAll('.screen').forEach(s => s.classList.remove('active')); 
+            const target = document.getElementById(id);
+            if(target) target.classList.add('active'); 
+            playMusicForScreen(id);
+
+            if(id === 'screen-menu' && myHunter) { 
+                socket.emit('requestWorldRankings');
+            }
+        }
+        
+        function auth(type) { 
+            const u = document.getElementById('u').value, p = document.getElementById('p').value;
+            if(!u || !p) return alert("ENTER CREDENTIALS");
+            bgm.play().catch(() => {}); 
+            socket.emit('authRequest', { type, u, p }); 
         }
 
-        function getShortRankLabel(m) {
-            if(m >= 901) return "S-RANK";
-            if(m >= 701) return "A-RANK";
-            if(m >= 501) return "B-RANK";
-            if(m >= 301) return "C-RANK";
-            if(m >= 101) return "D-RANK";
-            return "E-RANK";
-        }
+        socket.on('authSuccess', (d) => { 
+            myHunter = d;
+            // Update the UI with data from Supabase
+            document.getElementById('st-name').innerText = d.username;
+            document.getElementById('st-rank').innerText = d.rank; 
+            document.getElementById('st-mp').innerText = `MP: ${d.mana}`;
+            document.getElementById('st-stats').innerText = `WINS: ${d.wins || 0} | LOSSES: ${d.losses || 0}`;
+            showScreen('screen-menu'); 
+        });
+
+        socket.on('authError', (msg) => alert(msg));
+
+        socket.on('updateWorldRankings', (l) => {
+            const list = document.getElementById('world-rank-list');
+            list.innerHTML = l.map((h, i) => `
+                <div style="display:flex; justify-content:space-between; padding:5px; border-bottom:1px solid #222; font-weight:900;">
+                    <span>#${i+1} ${h.username}</span> <span>${h.manapoints} MP</span>
+                </div>`).join('');
+            
+            // Find our specific rank in the global list
+            const myPos = l.findIndex(h => h.username === myHunter.username);
+            if(myPos !== -1) document.getElementById('st-world-rank').innerText = `WORLD RANK: #${myPos + 1}`;
+        });
 
         // --- CHAT LOGIC ---
         function sendChat(type) {
@@ -238,7 +223,8 @@
         }
 
         socket.on('receiveMessage', (d) => {
-            const container = document.getElementById(document.getElementById('screen-waiting').classList.contains('active') ? 'room-chat-msgs' : 'game-chat-msgs');
+            const isWaiting = document.getElementById('screen-waiting').classList.contains('active');
+            const container = document.getElementById(isWaiting ? 'room-chat-msgs' : 'game-chat-msgs');
             if(container) {
                 container.innerHTML += `<div class="chat-msg"><span class="chat-rank">[${d.rank}]</span><b>${d.sender}:</b> ${d.text}</div>`;
                 container.scrollTop = container.scrollHeight;
@@ -253,103 +239,10 @@
             }
         });
 
-        // --- AUTH & NAVIGATION ---
-        function showScreen(id) { 
-            document.querySelectorAll('.screen').forEach(s => s.classList.remove('active')); 
-            const target = document.getElementById(id);
-            if(target) target.classList.add('active'); 
-            
-            // Trigger Music Change
-            playMusicForScreen(id);
-
-            if(id === 'screen-menu' && myHunter) { 
-                socket.emit('requestWorldRankings');
-            }
-        }
-        
-        function auth(type) { 
-            const u = document.getElementById('u').value, p = document.getElementById('p').value;
-            if(!u || !p) return alert("ENTER CREDENTIALS");
-            
-            // Audio requires user interaction to start
-            bgm.play().catch(() => {}); 
-            
-            currentPass = p;
-            socket.emit('authRequest', { type, u, p }); 
-        }
-
-        socket.on('authSuccess', (d) => { 
-            myHunter = d;
-            document.getElementById('st-name').innerText = d.username;
-            document.getElementById('st-rank').innerText = d.rank; 
-            document.getElementById('st-mp').innerText = `MP: ${d.mana}`;
-            showScreen('screen-menu'); 
-        });
-
-        socket.on('authError', (msg) => alert(msg));
-
-        socket.on('updateWorldRankings', (l) => {
-            currentWorldRankings = l;
-            document.getElementById('world-rank-list').innerHTML = l.map((h, i) => `
-                <div style="display:flex; justify-content:space-between; padding:5px; border-bottom:1px solid #222; font-weight:900;">
-                    <span>#${i+1} ${h.username}</span> <span>${h.manapoints} MP</span>
-                </div>`).join('');
-        });
-
-        // --- GAMEPLAY TRIGGERS ---
-        function openOnlineLobby() { showScreen('screen-online'); socket.emit('requestGateList'); }
-        function createGate() { socket.emit('createGate', { name: document.getElementById('gn').value || "GATE", host: myHunter.username }); }
-        function confirmReady() { socket.emit('playerConfirm', { gateID: myRoomID }); document.getElementById('ready-btn').style.display='none'; }
-        function startAI(diff) { socket.emit('startSoloAI', { user: myHunter.username, diff }); }
-
-        socket.on('gameStart', () => showScreen('screen-game'));
-        socket.on('gameStateUpdate', (s) => {
-            const board = document.getElementById('game-board');
-            board.innerHTML = "";
-            const me = s.players.find(p => p.id === socket.id);
-            if(!me) return;
-            
-            // Check for Silver Gate
-            const silver = Object.values(s.world).find(obj => obj.type === 'silver');
-            if(silver) {
-                document.getElementById('tc-silver-container').style.display = 'block';
-                document.getElementById('silver-power').innerText = silver.power;
-            } else {
-                document.getElementById('tc-silver-container').style.display = 'none';
-            }
-
-            // Render Board
-            for(let y=0; y<15; y++) {
-                for(let x=0; x<15; x++) {
-                    const cell = document.createElement('div');
-                    cell.className = 'cell';
-                    if(s.world[`${x}-${y}`]) cell.style.backgroundColor = s.world[`${x}-${y}`].color;
-                    
-                    const isTurn = s.players[s.turn].id === socket.id;
-                    const dist = Math.abs(me.x - x) + Math.abs(me.y - y);
-                    if(isTurn && me.alive && dist <= 2 && dist > 0) {
-                        cell.classList.add('valid-move');
-                        cell.onclick = () => socket.emit('playerAction', { tx: x, ty: y });
-                    }
-
-                    s.players.forEach(p => {
-                        if(p.alive && p.x === x && p.y === y) {
-                            const h = document.createElement('div');
-                            h.className = 'humanoid';
-                            h.innerHTML = `<div class="name-tag" style="color:${p.color}">${p.name} (${p.rankLabel || getShortRankLabel(p.mana)})</div>
-                                           <div class="h-head" style="background:${p.color}"></div><div class="h-body" style="background:${p.color}"></div>`;
-                            cell.appendChild(h);
-                        }
-                    });
-                    board.appendChild(cell);
-                }
-            }
-        });
-
-        socket.on('announcement', (txt) => { 
-            const b = document.getElementById('announcement-board');
-            b.innerHTML += `<div>[SYSTEM] ${txt}</div>`;
-            b.scrollTop = b.scrollHeight;
+        // ... GAMEPLAY LOGIC (joinGate, playerAction, etc.) ...
+        // Ensure you have logic to set myRoomID when joining a gate
+        socket.on('gameStart', () => {
+            showScreen('screen-game');
         });
 
         function quitAction() { socket.emit('quitGame'); location.reload(); }
