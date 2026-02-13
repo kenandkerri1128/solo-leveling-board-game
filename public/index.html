@@ -6,7 +6,7 @@
     <script src="/socket.io/socket.io.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Exo+2:ital,wght@1,900&family=Orbitron:wght@400;900&display=swap" rel="stylesheet">
     <style>
-        :root { --sys-blue: #00d2ff; --sys-red: #ff003c; --sys-gold: #ffcc00; }
+        :root { --sys-blue: #00d2ff; --sys-red: #ff003c; --sys-gold: #ffcc00; --sys-silver: #c0c0c0; }
         body { background: #000; color: white; font-family: 'Exo 2', sans-serif; margin: 0; overflow: hidden; }
         h1, h2, h3 { font-family: 'Orbitron'; font-style: italic; color: var(--sys-blue); text-shadow: 0 0 10px var(--sys-blue); }
         .screen { display: none; flex-direction: column; align-items: center; justify-content: center; height: 100vh; width: 100vw; position: absolute; }
@@ -22,7 +22,7 @@
         .h-body { width: 20px; height: 15px; border: 1px solid white; border-radius: 4px 4px 0 0; }
         .name-tag { position: absolute; top: -22px; left: 50%; transform: translateX(-50%); font-size: 10px; white-space: nowrap; font-weight: 900; background: #000; border: 1px solid #444; padding: 1px 4px; display: flex; flex-direction: column; align-items: center; }
         
-        .hud-left { width: 280px; background: rgba(0,0,0,0.9); border-right: 2px solid var(--sys-blue); padding: 15px; display: flex; flex-direction: column; height: 650px; }
+        .hud-left { width: 280px; background: rgba(0,0,0,0.9); border-right: 2px solid var(--sys-blue); padding: 15px; display: flex; flex-direction: column; height: 650px; overflow-y: auto; }
         .guide-box { background: rgba(0, 210, 255, 0.1); border: 1px solid var(--sys-blue); padding: 10px; border-radius: 5px; margin-bottom: 20px; }
         .rank-row { display: flex; justify-content: space-between; padding: 5px 0; border-bottom: 1px solid #222; font-size: 14px; font-weight: 900; }
         
@@ -98,11 +98,11 @@
             <h3>HOW TO PLAY</h3>
             <div class="guide-box">
                 <p style="color:var(--sys-gold); font-weight:900; margin:0 0 5px 0;">SYSTEM RULES:</p>
-                <p style="margin:0; font-size:12px; line-height:1.4;">
+                <p style="margin:0; font-size:11px; line-height:1.4;">
                     1. Absorb <b style="color:#00ff00;">Mana Gates</b> to grow stronger.<br>
                     2. <b style="color:red;">RED GATES (S)</b> only appear after a <b style="color:cyan;">RESPAWN</b>.<br>
-                    3. If you lose to the <b style="color:white;">Silver Gate</b>, all hunters resurrect.<br>
-                    4. <b style="color:cyan;">REAWAKENING:</b> The last player keeps their MP. All other hunters gain <b style="color:var(--sys-gold);">+500-1500 MP Bonus</b>.
+                    3. If you are the last hunter, a <b style="color:var(--sys-silver);">SILVER GATE</b> spawns (500+ MP). You must defeat it to win.<br>
+                    4. If the survivor loses to the Silver Gate, <b style="color:cyan;">ALL HUNTERS REAWAKEN</b>. Survivor keeps MP, others gain <b style="color:var(--sys-gold);">+500-1500 MP</b>.
                 </p>
             </div>
 
@@ -135,9 +135,10 @@
                     <div style="width:100%; height:4px; background:#111;"><div class="v-fill" id="vs-fill"></div></div>
                 </div>
                 <div id="turn-counter">
-                    <div id="tc-spawn-text">NEXT INSTANCE: <span id="tc-spawn">3</span> ROUNDS</div>
-                    <div id="tc-silver-container" style="display:none; color:#ffffff; font-weight: bold; border: 1px solid white; padding: 5px; margin-top: 5px;">
-                        STEPS REMAINING: <span id="survivor-countdown" style="color:red;">5</span>
+                    <div id="tc-spawn-text">RANDOM GATE: <span id="tc-spawn">3</span> ROUNDS</div>
+                    <div id="tc-silver-container" style="display:none; color:var(--sys-silver); font-weight: bold; border: 2px solid var(--sys-silver); padding: 5px; margin-top: 5px; background: rgba(255,255,255,0.1);">
+                        SILVER GATE DETECTED<br>
+                        POWER: <span id="silver-power">???</span>
                     </div>
                 </div>
                 <div id="announcement-board" style="flex-grow:1; background:#050505; font-size:11px; margin-top:10px; overflow-y:auto; padding:10px; border:1px solid #222;"></div>
@@ -152,11 +153,10 @@
         let myHunter = null;
         let myRoomID = null;
         let currentPass = ""; 
-        let currentWorldRankings = []; // Storage to track ranks globally
+        let currentWorldRankings = [];
 
         const POWER_ICONS = { 'DOUBLE DAMAGE': '⚔️', 'GHOST WALK': '👣', 'NETHER SWAP': '🌀' };
 
-        // Helper to get color based on numeric rank
         function getRankColor(index) {
             const rank = index + 1;
             if (rank <= 3) return 'var(--sys-gold)';
@@ -164,7 +164,6 @@
             return 'white';
         }
 
-        // Helper to find a user's world rank and color from the list
         function getHunterWorldRankData(username) {
             const index = currentWorldRankings.findIndex(h => h.username === username);
             if (index === -1) return { rankText: "RANK: UNKNOWN", color: "white" };
@@ -175,12 +174,18 @@
         }
 
         function getGameRankLabel(m) {
-            if(m >= 901) return "S RANK";
-            if(m >= 701) return "A RANK";
-            if(m >= 501) return "B RANK";
-            if(m >= 301) return "C RANK";
-            if(m >= 101) return "D RANK";
-            return "E RANK";
+            if(m >= 1000) return "HIGHER S";
+            if(m >= 901) return "LOWER S";
+            if(m >= 801) return "HIGHER A";
+            if(m >= 701) return "LOWER A";
+            if(m >= 601) return "HIGHER B";
+            if(m >= 501) return "LOWER B";
+            if(m >= 401) return "HIGHER C";
+            if(m >= 301) return "LOWER C";
+            if(m >= 201) return "HIGHER D";
+            if(m >= 101) return "LOWER D";
+            if(m >= 51) return "HIGHER E";
+            return "LOWER E";
         }
 
         function isPathBlockedClient(room, x1, y1, x2, y2) {
@@ -224,7 +229,6 @@
             document.getElementById('st-rank').style.color = d.color;
             document.getElementById('st-mp').innerText = `MP: ${d.mana}`;
             
-            // Initial rank update
             const rankData = getHunterWorldRankData(d.username);
             document.getElementById('st-world-rank').innerText = rankData.rankText;
             document.getElementById('st-world-rank').style.color = rankData.color;
@@ -233,17 +237,13 @@
         });
 
         socket.on('updateWorldRankings', (l) => {
-            currentWorldRankings = l; // Store globally for other functions
-            
-            // Update Profile Page Display
+            currentWorldRankings = l;
             if (myHunter) {
                 const rankData = getHunterWorldRankData(myHunter.username);
                 const stWR = document.getElementById('st-world-rank');
                 stWR.innerText = rankData.rankText;
                 stWR.style.color = rankData.color;
             }
-
-            // Update List UI
             document.getElementById('world-rank-list').innerHTML = l.map((h, i) => {
                 const color = getRankColor(i);
                 return `<div style="display:flex; justify-content:space-between; padding:5px; border-bottom:1px solid #222; font-weight:900; color:${color};">
@@ -264,7 +264,6 @@
         socket.on('waitingRoomUpdate', (room) => {
             showScreen('screen-waiting');
             myRoomID = room.id;
-            // UPDATED: Added Ranking display under names in waiting room slots
             document.getElementById('wait-slots').innerHTML = room.players.map(p => {
                 const rankData = getHunterWorldRankData(p.name);
                 return `
@@ -327,8 +326,11 @@
 
         socket.on('announcement', (txt) => { 
             const board = document.getElementById('announcement-board');
-            let color = txt.includes("REAWAKENED") ? "cyan" : "red";
-            board.innerHTML += `<div style="color:${color}; margin-bottom:5px;">[ALERT] ${txt}</div>`; 
+            let color = "red";
+            if (txt.includes("REAWAKENED") || txt.includes("RESURRECTED")) color = "cyan";
+            if (txt.includes("SILVER GATE")) color = "var(--sys-silver)";
+            
+            board.innerHTML += `<div style="color:${color}; margin-bottom:5px; border-left: 2px solid ${color}; padding-left: 5px;">[ALERT] ${txt}</div>`; 
             board.scrollTop = board.scrollHeight;
         });
 
@@ -339,19 +341,17 @@
             if(!me) return;
             const isTurn = s.players[s.turn].id === socket.id;
             const alivePlayers = s.players.filter(p => p.alive);
-            const isSurvivor = alivePlayers.length === 1;
-
-            document.getElementById('tc-spawn').innerText = 3 - (Math.floor(s.globalTurns / s.players.length) % 3);
             
-            if (isSurvivor) {
+            // Handle Silver Gate UI
+            const silverGate = Object.values(s.world).find(cell => cell.type === 'Silver');
+            if (silverGate) {
                 document.getElementById('tc-silver-container').style.display = 'block';
-                document.getElementById('survivor-countdown').innerText = 5 - s.survivorTurns;
-                document.getElementById('tc-spawn-text').style.opacity = '0.5';
+                document.getElementById('silver-power').innerText = silverGate.mana;
             } else {
                 document.getElementById('tc-silver-container').style.display = 'none';
-                document.getElementById('tc-spawn-text').style.opacity = '1';
             }
 
+            document.getElementById('tc-spawn').innerText = 3 - (Math.floor(s.globalTurns / s.players.length) % 3);
             document.getElementById('turn-txt').innerText = isTurn ? ">> YOUR MOVE" : `>> ${s.players[s.turn].name.toUpperCase()} ACTING`;
 
             document.getElementById('party-list').innerHTML = s.players.map(p => {
