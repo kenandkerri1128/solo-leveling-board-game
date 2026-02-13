@@ -55,6 +55,25 @@ function getSimpleRank(mana) {
     return 'E';
 }
 
+// NEW: Helper to calculate World Rank on the fly
+async function getWorldRank(mana) {
+    // Count how many players have MORE mana than the current player
+    const { count, error } = await supabase
+        .from('Hunters')
+        .select('*', { count: 'exact', head: true })
+        .gt('manapoints', mana);
+    
+    if (error) return '??';
+    return count + 1; // Rank is count + 1
+}
+
+function getWorldRankColor(rank) {
+    if (rank === '??') return '#ffffff';
+    if (rank <= 3) return '#ffcc00'; // Gold
+    if (rank <= 10) return '#ff003c'; // Red
+    return '#ffffff'; // White
+}
+
 function syncAllGates() {
     const list = Object.values(rooms).filter(r => r.isOnline && !r.active).map(r => ({ id: r.id, name: r.name, count: r.players.length }));
     io.emit('updateGateList', list);
@@ -74,8 +93,8 @@ function isPathBlocked(room, x1, y1, x2, y2) {
 }
 
 io.on('connection', (socket) => {
-    // FIX: Completely leave old rooms to prevent chat leakage
     socket.on('joinChatRoom', (roomId) => {
+        // Leave all previous rooms (except the default socket ID room)
         for (const room of socket.rooms) {
             if (room !== socket.id) socket.leave(room);
         }
@@ -92,11 +111,9 @@ io.on('connection', (socket) => {
         const rank = user ? getPlainRankLabel(user.manapoints) : "Rank E";
         const chatData = { sender: senderName, text: message, rank: rank, timestamp: new Date().toLocaleTimeString() };
         
-        if (!roomId || roomId === 'global' || roomId === 'null') {
-            io.emit('receiveMessage', chatData); 
-        } else {
-            io.to(roomId).emit('receiveMessage', chatData); 
-        }
+        // Strict Room Chat: 'global' is now treated as a specific room
+        const targetRoom = (!roomId || roomId === 'null') ? 'global' : roomId;
+        io.to(targetRoom).emit('receiveMessage', chatData); 
     });
 
     socket.on('authRequest', async (data) => {
@@ -118,9 +135,8 @@ io.on('connection', (socket) => {
                 music: 'menu.mp3'
             });
             syncAllGates();
-            const { data: rankingData } = await supabase.from('Hunters').select('username, manapoints, wins, losses').order('manapoints', { ascending: false }).limit(100);
-            const formattedRankings = rankingData.map(r => ({ ...r, rankLabel: getFullRankLabel(r.manapoints) }));
-            socket.emit('updateWorldRankings', formattedRankings);
+            // Automatically join global chat on auth success
+            socket.join('global'); 
         } else {
             socket.emit('authError', "INVALID ACCESS CODE OR ID");
         }
@@ -141,6 +157,10 @@ io.on('connection', (socket) => {
         const { data: user } = await supabase.from('Hunters').select('manapoints').eq('username', data.host).maybeSingle();
         const initialMana = user ? user.manapoints : Math.floor(Math.random()*201)+100;
         
+        // Calculate World Rank
+        const worldRank = await getWorldRank(initialMana);
+        const rankColor = getWorldRankColor(worldRank);
+
         rooms[id] = {
             id, name: data.name, isOnline: true, active: false, turn: 0, globalTurns: 0, survivorTurns: 0,
             respawnHappened: false,
@@ -151,6 +171,9 @@ io.on('connection', (socket) => {
                 y: corners[0].y, 
                 mana: initialMana, 
                 rankLabel: getFullRankLabel(initialMana),
+                // NEW: Add World Ranking Info
+                worldRank: worldRank,
+                worldRankColor: rankColor,
                 alive: true, 
                 confirmed: false, 
                 color: PLAYER_COLORS[0], 
@@ -174,6 +197,10 @@ io.on('connection', (socket) => {
             const { data: user } = await supabase.from('Hunters').select('manapoints').eq('username', data.user).maybeSingle();
             const playerMana = user ? user.manapoints : Math.floor(Math.random()*201)+100;
 
+            // Calculate World Rank
+            const worldRank = await getWorldRank(playerMana);
+            const rankColor = getWorldRankColor(worldRank);
+
             room.players.push({ 
                 id: socket.id, 
                 name: data.user, 
@@ -181,6 +208,9 @@ io.on('connection', (socket) => {
                 y: corners[idx].y, 
                 mana: playerMana, 
                 rankLabel: getFullRankLabel(playerMana),
+                // NEW: Add World Ranking Info
+                worldRank: worldRank,
+                worldRankColor: rankColor,
                 alive: true, 
                 confirmed: false, 
                 color: PLAYER_COLORS[idx], 
@@ -306,11 +336,12 @@ async function resolveConflict(room, p) {
     const aliveCount = room.players.filter(pl => pl.alive).length;
     
     if (opponent) {
-        // FIX: Sending colors to ensure VS Screen renders
+        // FIX: Sending powerups and colors for VS Screen
         io.to(room.id).emit('battleStart', { 
             hunter: p.name, 
             hunterMana: p.mana,
             hunterColor: p.color, 
+            hunterPowerUp: p.powerUp, // ADDED
             target: opponent.name, 
             targetId: opponent.id, 
             targetMana: opponent.mana,
@@ -346,11 +377,12 @@ async function resolveConflict(room, p) {
 
     if (room.world[coord]) {
         const gate = room.world[coord];
-        // FIX: Sending colors to ensure VS Screen renders
+        // FIX: Sending powerups and colors for VS Screen
         io.to(room.id).emit('battleStart', { 
             hunter: p.name, 
             hunterMana: p.mana,
             hunterColor: p.color, 
+            hunterPowerUp: p.powerUp, // ADDED
             target: `RANK ${gate.rank}`, 
             targetMana: gate.mana,
             targetRank: gate.rank,
