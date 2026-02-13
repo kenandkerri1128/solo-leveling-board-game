@@ -39,7 +39,7 @@ function getFullRankLabel(mana) {
     return "Lower E-Rank";
 }
 
-// Used for the In-Game Name Board (Removes Higher/Lower)
+// Used for the In-Game Name Board (REMOVES Higher/Lower per your request)
 function getShortRankLabel(mana) {
     if (mana >= 901) return "S-Rank";
     if (mana >= 701) return "A-Rank";
@@ -78,6 +78,22 @@ function isPathBlocked(room, x1, y1, x2, y2) {
 }
 
 io.on('connection', (socket) => {
+    // --- CHAT SYSTEM ---
+    socket.on('sendMessage', async (data) => {
+        const { roomId, message, senderName } = data;
+        // Fetch current mana to show rank in chat
+        const { data: user } = await supabase.from('Hunters').select('manapoints').eq('username', senderName).maybeSingle();
+        const rank = user ? getShortRankLabel(user.manapoints) : "E-Rank";
+        
+        const chatData = { sender: senderName, text: message, rank: rank };
+
+        if (!roomId) {
+            io.emit('receiveMessage', chatData); // Global Chat
+        } else {
+            io.to(roomId).emit('receiveMessage', chatData); // In-game/Waiting room chat
+        }
+    });
+
     socket.on('authRequest', async (data) => {
         if (data.type === 'signup') {
             const { data: existing } = await supabase.from('Hunters').select('username').eq('username', data.u).maybeSingle();
@@ -89,14 +105,14 @@ io.on('connection', (socket) => {
             const letter = getSimpleRank(user.manapoints);
             const fullLabel = getFullRankLabel(user.manapoints);
             
-            // Sending wins/losses here for the profile UI
             socket.emit('authSuccess', { 
                 username: user.username, 
                 mana: user.manapoints, 
                 rank: fullLabel, 
                 color: RANK_COLORS[letter],
                 wins: user.wins || 0,
-                losses: user.losses || 0
+                losses: user.losses || 0,
+                music: 'menu.mp3' // Trigger menu music on login
             });
             syncAllGates();
         } else {
@@ -121,6 +137,7 @@ io.on('connection', (socket) => {
         };
         socket.join(id);
         io.to(id).emit('waitingRoomUpdate', rooms[id]);
+        socket.emit('playMusic', 'waiting.mp3'); // Trigger waiting music
         syncAllGates();
     });
 
@@ -133,6 +150,7 @@ io.on('connection', (socket) => {
             room.players.push({ id: socket.id, name: data.user, ...corners[idx], mana: Math.floor(Math.random()*201)+100, alive: true, confirmed: false, color: PLAYER_COLORS[idx], isAI: false, quit: false, powerUp: null });
             socket.join(data.gateID);
             io.to(data.gateID).emit('waitingRoomUpdate', room);
+            socket.emit('playMusic', 'waiting.mp3'); // Trigger waiting music
             syncAllGates();
         }
     });
@@ -146,6 +164,7 @@ io.on('connection', (socket) => {
                 room.active = true;
                 for(let i=0; i<5; i++) spawnGate(room);
                 io.to(room.id).emit('gameStart');
+                io.to(room.id).emit('playMusic', 'gameplay.mp3'); // Trigger gameplay music
                 broadcastGameState(room);
                 syncAllGates();
             } else { io.to(room.id).emit('waitingRoomUpdate', room); }
@@ -173,6 +192,7 @@ io.on('connection', (socket) => {
         for(let i=0; i<5; i++) spawnGate(rooms[id]);
         socket.join(id);
         socket.emit('gameStart');
+        socket.emit('playMusic', 'gameplay.mp3'); // Solo starts immediately
         broadcastGameState(rooms[id]);
     });
 
@@ -213,14 +233,16 @@ io.on('connection', (socket) => {
                     wins: (u.wins || 0) + 1
                 }).eq('username', winner.name);
                 io.to(room.id).emit('victoryEvent', { winner: winner.name });
-                io.to(room.id).emit('announcement', `ALL OTHER HUNTERS QUIT. ${winner.name} WINS BY DEFAULT. +20 MP & WIN RECORDED.`);
+                io.to(room.id).emit('announcement', `ALL OTHER HUNTERS QUIT. ${winner.name} WINS BY DEFAULT.`);
                 setTimeout(() => { delete rooms[room.id]; syncAllGates(); }, 5000);
             }
 
             if (!room.active) room.players = room.players.filter(pl => pl.id !== s.id);
             if (room.players.length === 0 || room.players.every(pl => pl.isAI && !room.active)) delete rooms[room.id];
             else broadcastGameState(room);
+            
             syncAllGates();
+            s.emit('playMusic', 'menu.mp3'); // Return to menu music
             s.emit('returnToProfile');
         }
     }
@@ -287,11 +309,9 @@ async function resolveConflict(room, p) {
                         if (pCalcMana >= targetPlayer.mana) {
                             player.mana += targetPlayer.mana;
                             targetPlayer.alive = false;
-                            io.to(room.id).emit('announcement', `${player.name} stole ${targetPlayer.name}'s mana!`);
                         } else {
                             player.mana += attacker.mana;
                             attacker.alive = false;
-                            io.to(room.id).emit('announcement', `${player.name} stole ${attacker.name}'s mana!`);
                         }
                         combatCancelled = true; 
                     }
@@ -331,6 +351,7 @@ async function resolveConflict(room, p) {
                 io.to(room.id).emit('victoryEvent', { winner: p.name });
                 room.active = false;
                 setTimeout(() => { 
+                    io.to(room.id).emit('playMusic', 'menu.mp3');
                     io.to(room.id).emit('returnToProfile'); 
                     delete rooms[room.id];
                     syncAllGates();
@@ -400,11 +421,10 @@ function spawnGate(room) {
     room.world[`${x}-${y}`] = { rank, color: RANK_COLORS[rank], mana: Math.floor(Math.random() * (range[1] - range[0] + 1)) + range[0] };
 }
 
-// Updated to use the Short Rank Label for the In-Game UI
 function broadcastGameState(room) { 
     const sanitizedPlayers = room.players.map(p => ({
         ...p,
-        rankLabel: getShortRankLabel(p.mana) // This ensures "Higher/Lower" is hidden in the game board
+        rankLabel: getShortRankLabel(p.mana) // This ensures only "D-Rank" or "E-Rank" shows in-game
     }));
     
     const state = { ...room, players: sanitizedPlayers };
