@@ -75,10 +75,12 @@
 
     <div id="screen-auth" class="screen active">
         <h1 style="font-size: 4rem; letter-spacing: 15px;">SYSTEM</h1>
+        <div id="auth-msg" style="color:var(--sys-red); font-family: 'Orbitron'; font-size:12px; height:20px; margin-bottom:5px;"></div>
+        
         <input type="text" id="u" class="sys-input" placeholder="HUNTER ID">
         <input type="password" id="p" class="sys-input" placeholder="ACCESS CODE">
         <button class="sys-btn" onclick="auth('login')">LOGIN</button>
-        <button class="sys-btn" style="border-color:#444;" onclick="auth('signup')">CREATE RECORD</button>
+        <button class="sys-btn" style="border-color:#444;" onclick="auth('signup')">REGISTER</button>
     </div>
 
     <div id="screen-menu" class="screen">
@@ -100,7 +102,7 @@
 
         <button class="sys-btn" onclick="showScreen('screen-difficulty')">SINGLE PLAYER</button>
         <button class="sys-btn" onclick="openOnlineLobby()">MULTIPLAYER</button>
-        <button class="sys-btn" style="border-color:#555;" onclick="location.reload()">LOGOUT</button>
+        <button class="sys-btn" style="border-color:#555;" onclick="doLogout()">LOGOUT</button>
     </div>
 
     <div id="screen-lobby" class="screen">
@@ -195,6 +197,29 @@
 
         const POWER_ICONS = { 'DOUBLE DAMAGE': '⚔️', 'GHOST WALK': '👣', 'NETHER SWAP': '🌀' };
 
+        // --- AUTO LOGIN & REFRESH HANDLER ---
+        window.onload = function() {
+            const stored = sessionStorage.getItem('hunter_creds');
+            if(stored) {
+                try {
+                    const c = JSON.parse(stored);
+                    if(c.u && c.p) {
+                        document.getElementById('u').value = c.u;
+                        document.getElementById('p').value = c.p;
+                        currentPass = c.p;
+                        // Auto-attempt login
+                        socket.emit('authRequest', { type: 'login', u: c.u, p: c.p });
+                    }
+                } catch(e) { console.log("Creds error"); }
+            }
+        };
+
+        function doLogout() {
+            sessionStorage.removeItem('hunter_creds');
+            sessionStorage.removeItem('last_screen');
+            location.reload();
+        }
+
         function playMusic(track) {
             const audio = document.getElementById('bgm');
             if (currentBGM === track) return;
@@ -210,7 +235,6 @@
                     message: input.value,
                     senderName: myHunter.username,
                     roomId: myRoomID,
-                    // Sending short rank based on HuP for Chat Context
                     rank: getShortRankLabel(myHunter.mana) 
                 });
                 input.value = "";
@@ -220,7 +244,6 @@
         socket.on('receiveMessage', (data) => {
             const chatBox = document.getElementById('chat-messages');
             const msg = document.createElement('div');
-            // Data.rank is now server-provided accurate rank
             msg.innerHTML = `<b style="color:var(--sys-blue)">[${data.rank}] ${data.sender}:</b> ${data.text}`;
             chatBox.appendChild(msg);
             chatBox.scrollTop = chatBox.scrollHeight;
@@ -273,13 +296,8 @@
                     <span style="color:var(--sys-blue);">${h.hunterpoints} HuP</span>
                 </div>`;
             }).join('') || "NO HUNTERS RECORDED";
-
-            if (myHunter) {
-                const myIndex = currentWorldRankings.findIndex(h => h.username === myHunter.username);
-                if (myIndex !== -1) {
-                    document.getElementById('st-world-rank').innerText = `WORLD RANK: #${myIndex + 1}`;
-                }
-            }
+            
+            // Note: Own World Rank is updated via authSuccess now for accuracy
         }
 
         socket.on('updateWorldRankings', (l) => { 
@@ -293,6 +311,9 @@
             const target = document.getElementById(id);
             if(target) target.classList.add('active'); 
             
+            // Save state (except auth/loading)
+            if(id !== 'screen-auth') sessionStorage.setItem('last_screen', id);
+
             if(id === 'screen-menu') {
                 myRoomID = 'global';
                 moveChat('menu-chat-anchor');
@@ -310,23 +331,47 @@
         function auth(type) { 
             const u = document.getElementById('u').value;
             const p = document.getElementById('p').value;
-            if(!u || !p) return alert("ENTER HUNTER CREDENTIALS");
+            // Clear error msg
+            document.getElementById('auth-msg').innerText = "";
+            if(!u || !p) {
+                document.getElementById('auth-msg').innerText = "ENTER ALL CREDENTIALS";
+                return;
+            }
             currentPass = p;
             socket.emit('authRequest', { type, u, p }); 
         }
 
+        // Handle Server Auth Errors
+        socket.on('authError', (msg) => {
+             document.getElementById('auth-msg').innerText = msg;
+        });
+
         socket.on('authSuccess', (d) => { 
             myHunter = d;
+            
+            // Save Creds for Refresh
+            sessionStorage.setItem('hunter_creds', JSON.stringify({u: d.username, p: currentPass}));
+
             document.getElementById('st-name').innerText = d.username;
             document.getElementById('st-rank').innerText = d.rank; 
             document.getElementById('st-rank').style.color = d.color;
-            // Display HuP (Hunter Points) here
             document.getElementById('st-mp').innerText = `HuP: ${d.mana}`; 
             document.getElementById('st-stats').innerText = `WINS: ${d.wins || 0} | LOSSES: ${d.losses || 0}`;
             
-            if(document.getElementById('screen-auth').classList.contains('active')) showScreen('screen-menu'); 
-            renderRankings();
+            // Use Exact World Rank from Server
+            document.getElementById('st-world-rank').innerText = `WORLD RANK: #${d.worldRank || '--'}`;
 
+            // Restore Screen Logic
+            const lastScreen = sessionStorage.getItem('last_screen');
+            // If we were ingame/waiting, the server kicked us, so we must go to menu.
+            // If we were in menu or lobby, restore it.
+            if(lastScreen && lastScreen !== 'screen-game' && lastScreen !== 'screen-waiting' && lastScreen !== 'screen-auth') {
+                showScreen(lastScreen);
+            } else {
+                showScreen('screen-menu'); 
+            }
+            
+            renderRankings();
             if(d.music) playMusic(d.music);
         });
 
@@ -481,11 +526,9 @@
 
             document.getElementById('party-list').innerHTML = s.players.map(p => {
                 let status = p.quit ? '(QUIT)' : (p.alive ? '' : '(KIA)');
-                // displayRank is In-Game Strength (S-E)
                 let rLabel = p.displayRank || 'Rank E'; 
                 const wRankIdx = currentWorldRankings.findIndex(h => h.username === p.name);
                 const wRankDisplay = wRankIdx !== -1 ? `#${wRankIdx + 1}` : '#??';
-                // Show accurate MP if own, else show In-Game Rank
                 const mpValue = (p.id === socket.id) ? `MP: ${p.mana}` : rLabel;
 
                 return `<div class="party-member" style="color:${p.quit ? '#444' : p.color}">
@@ -516,7 +559,6 @@
                         if(p.alive && p.x === x && p.y === y) {
                             const h = document.createElement('div');
                             h.className = 'humanoid';
-                            // Character Name Tag showing In-Game Rank
                             h.innerHTML = `<div class="name-tag" style="color:${p.color}">
                                                 ${p.name} <span style="font-size:8px; color:#ccc; display:block;">[${p.displayRank || 'E'}]</span>
                                            </div>
