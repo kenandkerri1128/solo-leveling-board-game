@@ -23,19 +23,20 @@
         .name-tag { position: absolute; top: -22px; left: 50%; transform: translateX(-50%); font-size: 10px; white-space: nowrap; font-weight: 900; background: #000; border: 1px solid #444; padding: 1px 4px; display: flex; flex-direction: column; align-items: center; }
         
         .hud-left { width: 280px; background: rgba(0,0,0,0.9); border-right: 2px solid var(--sys-blue); padding: 15px; display: flex; flex-direction: column; height: 650px; overflow-y: auto; }
-        .guide-box { background: rgba(0, 210, 255, 0.1); border: 1px solid var(--sys-blue); padding: 10px; border-radius: 5px; margin-bottom: 20px; }
-        .rank-row { display: flex; justify-content: space-between; padding: 5px 0; border-bottom: 1px solid #222; font-size: 14px; font-weight: 900; }
+        .rank-row { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid #222; font-size: 13px; font-weight: 900; }
         
         .sidebar { width: 350px; border: 2px solid var(--sys-blue); background: #000; padding: 15px; height: 650px; display: flex; flex-direction: column; }
         .party-member { font-size: 18px; font-weight: 900; margin-bottom: 8px; border-bottom: 1px solid #222; }
+        
+        /* VS PANEL UI */
         #vs-panel { display: none; background: rgba(20,0,0,0.95); border: 2px solid var(--sys-red); padding: 15px; margin-top: 10px; flex-direction: column; align-items: center; box-shadow: 0 0 20px var(--sys-red); z-index: 1000; }
         .v-fill { height: 6px; background: var(--sys-red); width: 0%; transition: 5s linear; margin-top: 10px; }
+        
         #turn-counter { margin-top: 10px; padding: 10px; border: 1px solid #333; font-size: 14px; text-align: center; color: var(--sys-gold); }
         #victory-screen { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.95); z-index: 10000; flex-direction: column; align-items: center; justify-content: center; text-align: center;}
 
-        .power-icon { font-size: 14px; margin-top: 2px; color: var(--sys-gold); }
-        .skill-activate-btn { background: var(--sys-gold); color: #000; border: none; padding: 8px 20px; font-family: 'Orbitron'; font-weight: 900; cursor: pointer; margin-top: 10px; animation: pulse 0.6s infinite alternate; border-radius: 4px; box-shadow: 0 0 15px var(--sys-gold); }
-        @keyframes pulse { from { transform: scale(1); filter: brightness(1); } to { transform: scale(1.1); filter: brightness(1.3); } }
+        .skill-activate-btn { background: var(--sys-gold); color: #000; border: none; padding: 8px 20px; font-family: 'Orbitron'; font-weight: 900; cursor: pointer; margin-top: 10px; animation: pulse 0.6s infinite alternate; border-radius: 4px; box-shadow: 0 0 15px var(--sys-gold); width: 90%; }
+        @keyframes pulse { from { transform: scale(1); filter: brightness(1); } to { transform: scale(1.05); filter: brightness(1.3); } }
 
         #global-chat-container { width: 400px; height: 200px; border: 2px solid var(--sys-blue); background: rgba(0,0,0,0.8); display: none; flex-direction: column; margin-top: 10px; z-index: 2000; }
         #chat-messages { flex-grow: 1; overflow-y: auto; padding: 5px; font-size: 12px; font-family: 'Orbitron'; }
@@ -93,23 +94,6 @@
         <button class="sys-btn" style="border-color:#555;" onclick="location.reload()">LOGOUT</button>
     </div>
 
-    <div id="screen-online" class="screen">
-        <h2>ACTIVE GATES</h2>
-        <div id="gate-list" style="width:450px; height:250px; border:1px solid #333; overflow-y:auto; padding:10px;"></div>
-        <input type="text" id="gn" class="sys-input" placeholder="GATE DESIGNATION">
-        <button class="sys-btn" onclick="createGate()">INITIALIZE</button>
-        <button class="sys-btn" onclick="showScreen('screen-menu')">BACK</button>
-        <div id="multi-chat-anchor" style="height: 150px; width: 450px; margin-top: 10px;"></div>
-    </div>
-
-    <div id="screen-waiting" class="screen">
-        <h2 id="wait-title">SYNCING...</h2>
-        <div id="wait-slots" style="display:flex; gap:15px; margin:20px;"></div>
-        <button id="ready-btn" class="sys-btn" style="display:none; color:gold; border-color:gold;" onclick="confirmReady()">READY</button>
-        <button class="sys-btn" onclick="quitAction()">ABANDON</button>
-        <div id="waiting-chat-anchor" style="height: 150px; width: 450px; margin-top: 10px;"></div>
-    </div>
-
     <div id="screen-difficulty" class="screen">
         <h2>QUEST TYPE</h2>
         <button class="sys-btn" onclick="startAI('Easy')">EASY</button>
@@ -120,29 +104,23 @@
 
     <div id="screen-game" class="screen" style="flex-direction: row; justify-content: center; align-items: center;">
         <div class="hud-left">
-            <h3>HOW TO PLAY</h3>
-            <div class="guide-box">
-                <p style="color:var(--sys-gold); font-weight:900; margin:0 0 5px 0;">SYSTEM RULES:</p>
-                <p style="margin:0; font-size:11px; line-height:1.4;">
-                    1. Absorb <b style="color:#00ff00;">Mana Gates</b> to grow stronger.<br>
-                    2. <b style="color:red;">RED GATES (S)</b> only appear after a <b style="color:cyan;">RESPAWN</b>.<br>
-                    3. If you are the last hunter, a <b style="color:var(--sys-silver);">SILVER GATE</b> spawns (500+ MP). You must defeat it to win.<br>
-                    4. If the survivor loses to the Silver Gate, <b style="color:cyan;">ALL HUNTERS REAWAKEN</b>.
-                </p>
-            </div>
-
-            <div id="game-chat-anchor" style="height: 210px; width: 100%;"></div>
-
             <h3>RANKING TABLE</h3>
-            <div id="rank-guide" style="font-size: 10px;">
+            <div id="rank-guide">
                 <div class="rank-row" style="color:#ff0000;"><span>HIGHER S</span> <span>1000+</span></div>
                 <div class="rank-row" style="color:#ff0000; opacity:0.8;"><span>LOWER S</span> <span>901-999</span></div>
                 <div class="rank-row" style="color:#ff00ff;"><span>HIGHER A</span> <span>801-900</span></div>
+                <div class="rank-row" style="color:#ff00ff; opacity:0.7;"><span>LOWER A</span> <span>701-800</span></div>
                 <div class="rank-row" style="color:#ff9900;"><span>HIGHER B</span> <span>601-700</span></div>
+                <div class="rank-row" style="color:#ff9900; opacity:0.7;"><span>LOWER B</span> <span>501-600</span></div>
                 <div class="rank-row" style="color:#ffff00;"><span>HIGHER C</span> <span>401-500</span></div>
+                <div class="rank-row" style="color:#ffff00; opacity:0.7;"><span>LOWER C</span> <span>301-400</span></div>
                 <div class="rank-row" style="color:#99ff00;"><span>HIGHER D</span> <span>201-300</span></div>
+                <div class="rank-row" style="color:#99ff00; opacity:0.7;"><span>LOWER D</span> <span>101-200</span></div>
                 <div class="rank-row" style="color:#00ff00;"><span>HIGHER E</span> <span>51-100</span></div>
+                <div class="rank-row" style="color:#00ff00; opacity:0.7;"><span>LOWER E</span> <span>0-50</span></div>
             </div>
+
+            <div id="game-chat-anchor" style="height: 250px; width: 100%; margin-top:20px;"></div>
         </div>
 
         <div style="display:flex; gap:20px; padding: 0 20px;">
@@ -150,12 +128,14 @@
             <div class="sidebar">
                 <h3 id="turn-txt" style="color:var(--sys-gold); font-size: 14px;">>> SYSTEM TURN</h3>
                 <div id="party-list"></div>
+                
                 <div id="vs-panel">
                     <span id="vs-title" style="color:var(--sys-red); font-weight:900;">COMBAT INITIATED</span>
                     <div id="vs-data" style="font-size: 18px; text-align: center; margin: 10px 0;"></div>
                     <div id="skill-area" style="min-height: 80px; display: flex; flex-direction: column; align-items: center; justify-content: center; border-top: 1px solid #333; width: 100%;"></div>
                     <div style="width:100%; height:4px; background:#111;"><div class="v-fill" id="vs-fill"></div></div>
                 </div>
+
                 <div id="turn-counter">
                     <div id="tc-spawn-text">RANDOM GATE: <span id="tc-spawn">3</span> ROUNDS</div>
                     <div id="tc-silver-container" style="display:none; color:var(--sys-silver); font-weight: bold; border: 2px solid var(--sys-silver); padding: 5px; margin-top: 5px; background: rgba(255,255,255,0.1);">
@@ -171,9 +151,8 @@
 
     <script>
         const socket = io();
-        
         let myHunter = null;
-        let myRoomID = 'global'; // Initialized to global
+        let myRoomID = 'global';
         let currentPass = ""; 
         let currentWorldRankings = [];
         let currentBGM = "";
@@ -189,14 +168,13 @@
             audio.play().catch(e => console.log("Interaction required"));
         }
 
-        // --- CHAT HANDLING ---
         function sendChatMessage() {
             const input = document.getElementById('chat-input');
             if (input.value.trim() !== "" && myHunter) {
                 socket.emit('sendMessage', {
                     message: input.value,
                     senderName: myHunter.username,
-                    roomId: myRoomID, // Uses correctly assigned RoomID
+                    roomId: myRoomID,
                     rank: getShortRankLabel(myHunter.mana)
                 });
                 input.value = "";
@@ -215,26 +193,11 @@
             const chat = document.getElementById('global-chat-container');
             const anchor = document.getElementById(anchorId);
             if (chat && anchor) {
-                // FIXED: Removed the line that resets innerHTML so chat isn't cleared for everyone
                 chat.style.display = 'flex';
                 anchor.appendChild(chat);
                 chat.style.width = '100%';
                 chat.style.height = '100%';
             }
-        }
-
-        // --- RANKING LOGIC ---
-        function getRankColor(index) {
-            const rank = index + 1;
-            if (rank <= 3) return 'var(--sys-gold)'; 
-            if (rank <= 10) return 'var(--sys-red)'; 
-            return 'white'; 
-        }
-
-        function toggleRankLimit() {
-            showingFullRankings = !showingFullRankings;
-            document.getElementById('see-more-ranks').innerText = showingFullRankings ? "SHOW TOP 10" : "SEE MORE";
-            renderRankings();
         }
 
         function getShortRankLabel(m) {
@@ -251,27 +214,14 @@
             const limit = showingFullRankings ? 100 : 10;
             const playersToShow = currentWorldRankings.slice(0, limit);
             list.innerHTML = playersToShow.map((h, i) => `
-                <div style="display:flex; justify-content:space-between; padding:5px; border-bottom:1px solid #222; font-weight:900; color:${getRankColor(i)};">
+                <div style="display:flex; justify-content:space-between; padding:5px; border-bottom:1px solid #222; font-weight:900; color:${i < 3 ? 'var(--sys-gold)' : 'white'};">
                     <span>#${i+1} ${h.username}</span>
                     <span style="color:var(--sys-blue);">${h.manapoints} MP</span>
                 </div>`).join('') || "NO HUNTERS RECORDED";
-            
-            if(myHunter) {
-                const myIdx = currentWorldRankings.findIndex(h => h.username === myHunter.username);
-                const wrEl = document.getElementById('st-world-rank');
-                if(myIdx !== -1) {
-                    wrEl.innerText = `WORLD RANK: ${myIdx + 1}`;
-                    wrEl.style.color = getRankColor(myIdx);
-                }
-            }
         }
 
-        socket.on('updateWorldRankings', (l) => { 
-            currentWorldRankings = l; 
-            renderRankings(); 
-        });
+        socket.on('updateWorldRankings', (l) => { currentWorldRankings = l; renderRankings(); });
 
-        // --- AUTH & SCREENS ---
         function showScreen(id) { 
             const screens = document.querySelectorAll('.screen');
             screens.forEach(s => s.classList.remove('active')); 
@@ -279,22 +229,12 @@
             if(target) target.classList.add('active'); 
             
             if(id === 'screen-menu') {
-                myRoomID = 'global'; // Reset to global for profile
+                myRoomID = 'global';
                 moveChat('menu-chat-anchor');
                 playMusic('menu.mp3');
-                if(myHunter) {
-                    socket.emit('requestWorldRankings');
-                    socket.emit('authRequest', {type:'login', u:myHunter.username, p:currentPass}); 
-                }
-            } else if (id === 'screen-online') {
-                myRoomID = 'global'; // Reset to global for multiplayer lobby
-                moveChat('multi-chat-anchor');
-            } else if (id === 'screen-waiting') {
-                moveChat('waiting-chat-anchor');
             } else if (id === 'screen-game') {
                 moveChat('game-chat-anchor');
-            } else if (id === 'screen-auth') {
-                document.getElementById('global-chat-container').style.display = 'none';
+                playMusic('gameplay.mp3');
             }
         }
         
@@ -312,26 +252,7 @@
             document.getElementById('st-rank').innerText = d.rank; 
             document.getElementById('st-rank').style.color = d.color;
             document.getElementById('st-mp').innerText = `MP: ${d.mana}`;
-            document.getElementById('st-stats').innerText = `WINS: ${d.wins || 0} | LOSSES: ${d.losses || 0}`;
-            
             if(document.getElementById('screen-auth').classList.contains('active')) showScreen('screen-menu'); 
-        });
-
-        // --- GAME CORE ---
-        function openOnlineLobby() { showScreen('screen-online'); socket.emit('requestGateList'); }
-        function createGate() { socket.emit('createGate', { name: document.getElementById('gn').value || "UNKNOWN GATE", host: myHunter.username }); }
-        function confirmReady() { socket.emit('playerConfirm', { gateID: myRoomID }); document.getElementById('ready-btn').style.display='none'; }
-        
-        socket.on('updateGateList', (gates) => {
-            document.getElementById('gate-list').innerHTML = gates.map(g => `<div style="padding:10px; border-bottom:1px solid #222; display:flex; justify-content:space-between;"><span>${g.name} (${g.count}/4)</span> <button class="sys-btn" style="width:80px; padding:5px; margin:0; font-size:10px;" onclick="socket.emit('joinGate', {gateID:'${g.id}', user:myHunter.username})">JOIN</button></div>`).join('') || "NO GATES";
-        });
-
-        socket.on('waitingRoomUpdate', (room) => {
-            showScreen('screen-waiting');
-            playMusic('waiting.mp3');
-            myRoomID = room.id; 
-            document.getElementById('wait-slots').innerHTML = room.players.map(p => `<div style="padding:15px; border:2px solid ${p.confirmed?'lime':'#444'}; background:#000; font-weight:900;">${p.name}</div>`).join('');
-            if(room.players.length >= 1) document.getElementById('ready-btn').style.display = 'block';
         });
 
         function startAI(diff) { 
@@ -347,15 +268,10 @@
             document.getElementById('vs-panel').style.display = 'none';
         }
 
-        socket.on('gameStart', () => { 
-            resetGameUI(); 
-            showScreen('screen-game'); 
-            playMusic('gameplay.mp3');
-        });
+        socket.on('gameStart', () => { resetGameUI(); showScreen('screen-game'); });
 
-        // --- COMBAT / VS PANEL ---
         socket.on('combatStart', (data) => {
-            // FIXED: Only show panel if current player is attacker OR defender
+            // Display VS screen for involved players
             if (data.attacker.id !== socket.id && data.defender.id !== socket.id) return;
 
             const panel = document.getElementById('vs-panel');
@@ -388,34 +304,8 @@
         });
 
         socket.on('combatEnd', () => {
-            setTimeout(() => { document.getElementById('vs-panel').style.display = 'none'; }, 1000);
+            setTimeout(() => { document.getElementById('vs-panel').style.display = 'none'; }, 1500);
         });
-
-        socket.on('victoryEvent', (d) => {
-            const vs = document.getElementById('victory-screen');
-            const timerTxt = document.getElementById('return-timer');
-            const deductionInfo = document.getElementById('mp-deduction-info');
-            
-            vs.style.display = 'flex';
-            document.getElementById('winner-name').innerText = d.winner.toUpperCase();
-            
-            const winnerMana = d.winnerMana || 0;
-            const lossAmount = Math.floor(winnerMana / Math.pow(10, Math.floor(Math.log10(winnerMana))));
-            deductionInfo.innerText = `LOSERS PENALTY: -${lossAmount} MP`;
-
-            let count = 5;
-            const interval = setInterval(() => {
-                count--;
-                timerTxt.innerText = `Returning to Profile in ${count}...`;
-                if(count <= 0) {
-                    clearInterval(interval);
-                    quitAction();
-                }
-            }, 1000);
-        });
-
-        function quitAction() { socket.emit('quitGame'); }
-        socket.on('returnToProfile', () => { resetGameUI(); showScreen('screen-menu'); });
 
         socket.on('gameStateUpdate', (s) => {
             const board = document.getElementById('game-board');
@@ -465,6 +355,8 @@
             }
         });
 
+        function quitAction() { socket.emit('quitGame'); }
+        socket.on('returnToProfile', () => { resetGameUI(); showScreen('screen-menu'); });
         socket.on('sysLog', (msg) => {
             const board = document.getElementById('announcement-board');
             board.innerHTML = `<div>> ${msg}</div>` + board.innerHTML;
