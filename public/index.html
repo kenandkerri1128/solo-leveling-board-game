@@ -173,7 +173,7 @@
         const socket = io();
         
         let myHunter = null;
-        let myRoomID = null;
+        let myRoomID = 'global'; // Initialized to global
         let currentPass = ""; 
         let currentWorldRankings = [];
         let currentBGM = "";
@@ -196,7 +196,7 @@
                 socket.emit('sendMessage', {
                     message: input.value,
                     senderName: myHunter.username,
-                    roomId: myRoomID || 'global', // Room-specific chat
+                    roomId: myRoomID, // Uses correctly assigned RoomID
                     rank: getShortRankLabel(myHunter.mana)
                 });
                 input.value = "";
@@ -215,8 +215,7 @@
             const chat = document.getElementById('global-chat-container');
             const anchor = document.getElementById(anchorId);
             if (chat && anchor) {
-                // Reset chat on room change
-                document.getElementById('chat-messages').innerHTML = "";
+                // FIXED: Removed the line that resets innerHTML so chat isn't cleared for everyone
                 chat.style.display = 'flex';
                 anchor.appendChild(chat);
                 chat.style.width = '100%';
@@ -227,9 +226,9 @@
         // --- RANKING LOGIC ---
         function getRankColor(index) {
             const rank = index + 1;
-            if (rank <= 3) return 'var(--sys-gold)'; // 1, 2, and 3 are Gold
-            if (rank <= 10) return 'var(--sys-red)'; // 4 to 10 are Red
-            return 'white'; // 11 onwards are White
+            if (rank <= 3) return 'var(--sys-gold)'; 
+            if (rank <= 10) return 'var(--sys-red)'; 
+            return 'white'; 
         }
 
         function toggleRankLimit() {
@@ -280,7 +279,7 @@
             if(target) target.classList.add('active'); 
             
             if(id === 'screen-menu') {
-                myRoomID = 'profile';
+                myRoomID = 'global'; // Reset to global for profile
                 moveChat('menu-chat-anchor');
                 playMusic('menu.mp3');
                 if(myHunter) {
@@ -288,7 +287,7 @@
                     socket.emit('authRequest', {type:'login', u:myHunter.username, p:currentPass}); 
                 }
             } else if (id === 'screen-online') {
-                myRoomID = 'lobby';
+                myRoomID = 'global'; // Reset to global for multiplayer lobby
                 moveChat('multi-chat-anchor');
             } else if (id === 'screen-waiting') {
                 moveChat('waiting-chat-anchor');
@@ -330,7 +329,7 @@
         socket.on('waitingRoomUpdate', (room) => {
             showScreen('screen-waiting');
             playMusic('waiting.mp3');
-            myRoomID = room.id; // Chat now synced to this specific waiting room ID
+            myRoomID = room.id; 
             document.getElementById('wait-slots').innerHTML = room.players.map(p => `<div style="padding:15px; border:2px solid ${p.confirmed?'lime':'#444'}; background:#000; font-weight:900;">${p.name}</div>`).join('');
             if(room.players.length >= 1) document.getElementById('ready-btn').style.display = 'block';
         });
@@ -356,6 +355,9 @@
 
         // --- COMBAT / VS PANEL ---
         socket.on('combatStart', (data) => {
+            // FIXED: Only show panel if current player is attacker OR defender
+            if (data.attacker.id !== socket.id && data.defender.id !== socket.id) return;
+
             const panel = document.getElementById('vs-panel');
             const fill = document.getElementById('vs-fill');
             const vsData = document.getElementById('vs-data');
@@ -397,7 +399,6 @@
             vs.style.display = 'flex';
             document.getElementById('winner-name').innerText = d.winner.toUpperCase();
             
-            // Logic for showing MP Loss based on first digit of winner mana
             const winnerMana = d.winnerMana || 0;
             const lossAmount = Math.floor(winnerMana / Math.pow(10, Math.floor(Math.log10(winnerMana))));
             deductionInfo.innerText = `LOSERS PENALTY: -${lossAmount} MP`;
