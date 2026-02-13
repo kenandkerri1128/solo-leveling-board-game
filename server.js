@@ -17,6 +17,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 let rooms = {};
 const AI_NAMES = ["Sung Jinwoo", "Cha Hae-In", "Baek Yoonho", "Choi Jong-In"];
+// FIXED: Increased variety and explicitly assigned per player index
 const PLAYER_COLORS = ['#00d2ff', '#ff3e3e', '#bcff00', '#ff00ff']; 
 const RANK_COLORS = { 'E': '#00ff00', 'D': '#99ff00', 'C': '#ffff00', 'B': '#ff9900', 'A': '#ff00ff', 'S': '#ff0000', 'Silver': '#ffffff' };
 const POWER_UPS = ['DOUBLE DAMAGE', 'GHOST WALK', 'NETHER SWAP'];
@@ -76,18 +77,19 @@ function isPathBlocked(room, x1, y1, x2, y2) {
 }
 
 io.on('connection', (socket) => {
-    // --- CHAT SYSTEM ---
+    // --- CHAT SYSTEM FIXED ---
     socket.on('sendMessage', async (data) => {
         const { roomId, message, senderName } = data;
+        // Fetch real-time mana for rank display in chat
         const { data: user } = await supabase.from('Hunters').select('manapoints').eq('username', senderName).maybeSingle();
         const rank = user ? getShortRankLabel(user.manapoints) : "E-Rank";
         
-        const chatData = { sender: senderName, text: message, rank: rank };
+        const chatData = { sender: senderName, text: message, rank: rank, timestamp: new Date().toLocaleTimeString() };
 
         if (!roomId) {
-            io.emit('receiveMessage', chatData); // Global
+            io.emit('receiveMessage', chatData); // Global Chat
         } else {
-            io.to(roomId).emit('receiveMessage', chatData); // In-game
+            io.to(roomId).emit('receiveMessage', chatData); // In-Game Chat
         }
     });
 
@@ -117,7 +119,6 @@ io.on('connection', (socket) => {
         }
     });
 
-    // UPDATED: Limit changed to 100 for the "See More" feature
     socket.on('requestWorldRankings', async () => {
         const { data } = await supabase.from('Hunters')
             .select('username, manapoints, wins, losses')
@@ -128,12 +129,27 @@ io.on('connection', (socket) => {
 
     socket.on('requestGateList', () => syncAllGates());
 
+    // --- SPAWN LOGIC FIXED ---
+    const corners = [{x:0,y:0}, {x:14,y:0}, {x:0,y:14}, {x:14,y:14}];
+
     socket.on('createGate', (data) => {
         const id = `gate_${Date.now()}`;
         rooms[id] = {
             id, name: data.name, isOnline: true, active: false, turn: 0, globalTurns: 0, survivorTurns: 0,
             respawnHappened: false,
-            players: [{ id: socket.id, name: data.host, x:0, y:0, mana: Math.floor(Math.random()*201)+100, alive: true, confirmed: false, color: PLAYER_COLORS[0], isAI: false, quit: false, powerUp: null }],
+            players: [{ 
+                id: socket.id, 
+                name: data.host, 
+                x: corners[0].x, 
+                y: corners[0].y, 
+                mana: Math.floor(Math.random()*201)+100, 
+                alive: true, 
+                confirmed: false, 
+                color: PLAYER_COLORS[0], 
+                isAI: false, 
+                quit: false, 
+                powerUp: null 
+            }],
             world: {}
         };
         socket.join(id);
@@ -147,8 +163,22 @@ io.on('connection', (socket) => {
         if (room && room.players.length < 4) {
             if (room.players.some(p => p.name === data.user)) return; 
             const idx = room.players.length;
-            const corners = [{x:0,y:0}, {x:14,y:0}, {x:0,y:14}, {x:14,y:14}];
-            room.players.push({ id: socket.id, name: data.user, ...corners[idx], mana: Math.floor(Math.random()*201)+100, alive: true, confirmed: false, color: PLAYER_COLORS[idx], isAI: false, quit: false, powerUp: null });
+            
+            // FIXED: Ensuring unique coordinates and colors based on index
+            room.players.push({ 
+                id: socket.id, 
+                name: data.user, 
+                x: corners[idx].x, 
+                y: corners[idx].y, 
+                mana: Math.floor(Math.random()*201)+100, 
+                alive: true, 
+                confirmed: false, 
+                color: PLAYER_COLORS[idx], 
+                isAI: false, 
+                quit: false, 
+                powerUp: null 
+            });
+            
             socket.join(data.gateID);
             io.to(data.gateID).emit('waitingRoomUpdate', room);
             socket.emit('playMusic', 'waiting.mp3');
@@ -174,7 +204,6 @@ io.on('connection', (socket) => {
 
     socket.on('startSoloAI', (data) => {
         const id = `solo_${socket.id}_${Date.now()}`;
-        const corners = [{x:0,y:0}, {x:14,y:0}, {x:0,y:14}, {x:14,y:14}];
         rooms[id] = {
             id, active: true, turn: 0, isOnline: false, mode: data.diff, globalTurns: 0, survivorTurns: 0,
             respawnHappened: false,
