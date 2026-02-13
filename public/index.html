@@ -109,14 +109,21 @@
             <input type="text" id="gate-name-input" class="sys-input" placeholder="GATE NAME" style="width: 250px;">
             <button class="sys-btn" style="width:auto;" onclick="createGate()">OPEN GATE</button>
         </div>
-        <div id="gate-list" style="width: 600px; height: 400px; border: 2px solid var(--sys-blue); margin-bottom: 20px; overflow-y: auto; background: rgba(0,0,0,0.8);">
-            </div>
+        
+        <div style="display: flex; gap: 20px;">
+            <div id="gate-list" style="width: 600px; height: 400px; border: 2px solid var(--sys-blue); margin-bottom: 20px; overflow-y: auto; background: rgba(0,0,0,0.8);"></div>
+            <div id="lobby-chat-anchor" style="width: 400px; height: 400px; border: 1px solid var(--sys-blue);"></div>
+        </div>
+        
         <button class="sys-btn" onclick="showScreen('screen-menu')">BACK</button>
     </div>
 
     <div id="screen-waiting" class="screen">
         <h2 id="waiting-title">WAITING FOR HUNTERS...</h2>
         <div id="waiting-list" style="width: 500px; min-height: 200px; border: 2px solid var(--sys-blue); padding: 20px; margin: 20px; background: rgba(0,0,0,0.8);"></div>
+        
+        <div id="waiting-chat-anchor" style="width: 500px; height: 200px; margin-bottom: 10px;"></div>
+
         <button class="sys-btn" id="btn-ready" onclick="playerConfirm()">READY / START</button>
         <button class="sys-btn" style="border-color:#555" onclick="leaveWaitingRoom()">LEAVE</button>
     </div>
@@ -285,6 +292,7 @@
             const target = document.getElementById(id);
             if(target) target.classList.add('active'); 
             
+            // FIX: Added chat moving logic for Lobby and Waiting Room
             if(id === 'screen-menu') {
                 myRoomID = 'global';
                 moveChat('menu-chat-anchor');
@@ -292,6 +300,10 @@
             } else if (id === 'screen-game') {
                 moveChat('game-chat-anchor');
                 playMusic('gameplay.mp3');
+            } else if (id === 'screen-lobby') {
+                moveChat('lobby-chat-anchor');
+            } else if (id === 'screen-waiting') {
+                moveChat('waiting-chat-anchor');
             }
         }
         
@@ -315,13 +327,11 @@
             renderRankings();
         });
 
-        // --- NEW MULTIPLAYER LOBBY LOGIC ---
-
         function openOnlineLobby() {
             if(!myHunter) return;
             showScreen('screen-lobby');
             socket.emit('requestGateList');
-            socket.emit('joinChatRoom', 'global'); // Lobby chat is global
+            socket.emit('joinChatRoom', 'global'); 
         }
 
         function createGate() {
@@ -349,11 +359,10 @@
             showScreen('screen-waiting');
             document.getElementById('waiting-title').innerText = `GATE: ${room.name}`;
             
-            // Sync Chat to this room
+            // Sync Chat
             if(myRoomID !== room.id) socket.emit('joinChatRoom', room.id);
 
             const container = document.getElementById('waiting-list');
-            // FIX: Using worldRankLabel and worldRankColor from server
             container.innerHTML = room.players.map(p => 
                 `<div style="padding:10px; border-bottom:1px solid #333; display:flex; justify-content:space-between; color:${p.color}">
                     <span>${p.name} <span style="color:${p.worldRankColor}; font-size:10px;">(${p.worldRankLabel || 'RANK ?'})</span></span>
@@ -361,7 +370,6 @@
                 </div>`
             ).join('');
 
-            // If everyone is ready, button changes (handled by gameStart server-side, but visuals here)
             const me = room.players.find(p => p.name === myHunter.username);
             const btn = document.getElementById('btn-ready');
             if(me && me.confirmed) {
@@ -380,7 +388,7 @@
         }
 
         function leaveWaitingRoom() {
-            socket.emit('quitGame'); // Reuse quit logic to leave room
+            socket.emit('quitGame'); 
             showScreen('screen-lobby');
             socket.emit('requestGateList');
         }
@@ -418,22 +426,21 @@
             vsFill.style.transition = '5s linear';
             vsFill.style.width = '100%';
 
-            // Use Colors from Server
             const attackerColor = data.hunterColor || '#fff';
             const defenderColor = data.targetColor || '#fff';
 
+            // FIX: Removed "DEFENDER RANK:" prefix, now just shows raw data (e.g. MP: 5000)
             vsData.innerHTML = `
                 <div style="font-weight:900; color:white;">
                     <span style="color:${attackerColor}">${data.hunter}</span> 
                     <span style="color:var(--sys-red)">VS</span> 
                     <span style="color:${defenderColor}">${data.target}</span>
                 </div>
-                <div style="font-size:12px; color:var(--sys-blue); margin-top:5px;">DEFENDER RANK: ${data.targetRank}</div>
+                <div style="font-size:12px; color:var(--sys-blue); margin-top:5px;">${data.targetRank}</div>
             `;
 
             skillArea.innerHTML = "";
             
-            // Only show button if I am the hunter (attacker) AND I have a powerup
             if (data.hunter === myHunter.username && data.hunterPowerUp) {
                 const btn = document.createElement('button');
                 btn.className = 'skill-activate-btn';
@@ -446,6 +453,11 @@
                 };
                 skillArea.appendChild(btn);
             }
+        });
+
+        // FIX: Added Battle End Listener to hide VS screen
+        socket.on('battleEnd', () => {
+             document.getElementById('vs-panel').style.display = 'none';
         });
 
         socket.on('battleUpdate', (result) => {
@@ -519,6 +531,16 @@
         socket.on('sysLog', (msg) => {
             const board = document.getElementById('announcement-board');
             board.innerHTML = `<div>> ${msg}</div>` + board.innerHTML;
+        });
+
+        // Add Victory Event Handler
+        socket.on('victoryEvent', (data) => {
+            const vs = document.getElementById('victory-screen');
+            vs.style.display = 'flex';
+            document.getElementById('winner-name').innerText = data.winner;
+            document.getElementById('mp-deduction-info').innerText = (data.winner === myHunter.username) 
+                ? "VICTORY ACHIEVED: +20 MANA POINTS" 
+                : "DEFEAT: MANA POINTS DEDUCTED";
         });
     </script>
 </body>
