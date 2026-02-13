@@ -87,11 +87,11 @@
             <div id="st-world-rank" style="font-size: 1.2rem; font-weight: 900; color: var(--sys-gold); margin: 5px 0;">WORLD RANK: #--</div>
             <div id="st-stats" style="font-size: 1rem; color: #aaa; margin-bottom: 5px;">WINS: 0 | LOSSES: 0</div>
             <div id="st-rank" style="font-size: 1.8rem; font-weight: 900; margin:0;">---</div>
-            <div id="st-mp" style="font-size: 1.5rem; margin:0; color:white;">MP: ---</div>
+            <div id="st-mp" style="font-size: 1.2rem; margin:0; color:var(--sys-blue);">HuP: ---</div>
         </div>
 
         <div style="border:2px solid var(--sys-blue); width:400px; padding:20px; background:rgba(0,0,0,0.8);">
-            <h3>WORLD RANKINGS</h3>
+            <h3>WORLD RANKINGS (HuP)</h3>
             <div id="world-rank-list" style="max-height: 300px; overflow-y: auto;"></div>
             <button id="see-more-ranks" class="see-more-btn" onclick="toggleRankLimit()" style="background: transparent; border: 1px solid var(--sys-blue); color: var(--sys-blue); width: 100%; padding: 5px; cursor: pointer; font-family: 'Orbitron'; font-size: 10px; font-weight: 900; margin-top: 5px;">SEE MORE</button>
         </div>
@@ -138,7 +138,7 @@
 
     <div id="screen-game" class="screen" style="flex-direction: row; justify-content: center; align-items: center;">
         <div class="hud-left">
-            <h3>RANKING TABLE</h3>
+            <h3>RANKING TABLE (HuP)</h3>
             <div id="rank-guide">
                 <div class="rank-row" style="color:#ff0000;"><span>HIGHER S</span> <span>1000+</span></div>
                 <div class="rank-row" style="color:#ff0000; opacity:0.8;"><span>LOWER S</span> <span>901-999</span></div>
@@ -174,7 +174,7 @@
                     <div id="tc-spawn-text">RANDOM GATE: <span id="tc-spawn">3</span> ROUNDS</div>
                     <div id="tc-silver-container" style="display:none; color:var(--sys-silver); font-weight: bold; border: 2px solid var(--sys-silver); padding: 5px; margin-top: 5px; background: rgba(255,255,255,0.1);">
                         SILVER GATE DETECTED<br>
-                        POWER: <span id="silver-power">???</span>
+                        POWER: <span id="silver-power">???</span> MP
                     </div>
                 </div>
                 <div id="announcement-board" style="flex-grow:1; background:#050505; font-size:11px; margin-top:10px; overflow-y:auto; padding:10px; border:1px solid #222;"></div>
@@ -191,7 +191,7 @@
         let currentWorldRankings = [];
         let currentBGM = "";
         let showingFullRankings = false;
-        let currentGateID = null; // Track current room
+        let currentGateID = null; 
 
         const POWER_ICONS = { 'DOUBLE DAMAGE': '⚔️', 'GHOST WALK': '👣', 'NETHER SWAP': '🌀' };
 
@@ -206,12 +206,11 @@
         function sendChatMessage() {
             const input = document.getElementById('chat-input');
             if (input.value.trim() !== "" && myHunter) {
-                // Front-end rank calculation for chat isn't critical since server overrides or handles it,
-                // but we keep it for immediate feedback if needed.
                 socket.emit('sendMessage', {
                     message: input.value,
                     senderName: myHunter.username,
                     roomId: myRoomID,
+                    // Sending short rank based on HuP for Chat Context
                     rank: getShortRankLabel(myHunter.mana) 
                 });
                 input.value = "";
@@ -221,7 +220,7 @@
         socket.on('receiveMessage', (data) => {
             const chatBox = document.getElementById('chat-messages');
             const msg = document.createElement('div');
-            // Server now sends the correct rank, we display it here.
+            // Data.rank is now server-provided accurate rank
             msg.innerHTML = `<b style="color:var(--sys-blue)">[${data.rank}] ${data.sender}:</b> ${data.text}`;
             chatBox.appendChild(msg);
             chatBox.scrollTop = chatBox.scrollHeight;
@@ -271,7 +270,7 @@
                 return `
                 <div style="display:flex; justify-content:space-between; padding:5px; border-bottom:1px solid #222; font-weight:900; color:${rankColor};">
                     <span>#${i+1} ${h.username}</span>
-                    <span style="color:var(--sys-blue);">${h.manapoints} MP</span>
+                    <span style="color:var(--sys-blue);">${h.hunterpoints} HuP</span>
                 </div>`;
             }).join('') || "NO HUNTERS RECORDED";
 
@@ -321,13 +320,13 @@
             document.getElementById('st-name').innerText = d.username;
             document.getElementById('st-rank').innerText = d.rank; 
             document.getElementById('st-rank').style.color = d.color;
-            document.getElementById('st-mp').innerText = `MP: ${d.mana}`;
+            // Display HuP (Hunter Points) here
+            document.getElementById('st-mp').innerText = `HuP: ${d.mana}`; 
             document.getElementById('st-stats').innerText = `WINS: ${d.wins || 0} | LOSSES: ${d.losses || 0}`;
             
             if(document.getElementById('screen-auth').classList.contains('active')) showScreen('screen-menu'); 
             renderRankings();
 
-            // FIX: Only change music if sent (login), otherwise ignore (profile update)
             if(d.music) playMusic(d.music);
         });
 
@@ -482,11 +481,11 @@
 
             document.getElementById('party-list').innerHTML = s.players.map(p => {
                 let status = p.quit ? '(QUIT)' : (p.alive ? '' : '(KIA)');
-                // FIX: Use accurate displayRank from server (Rank E, Rank S, etc.)
+                // displayRank is In-Game Strength (S-E)
                 let rLabel = p.displayRank || 'Rank E'; 
                 const wRankIdx = currentWorldRankings.findIndex(h => h.username === p.name);
                 const wRankDisplay = wRankIdx !== -1 ? `#${wRankIdx + 1}` : '#??';
-                // Show accurate MP if own, else show accurate Rank
+                // Show accurate MP if own, else show In-Game Rank
                 const mpValue = (p.id === socket.id) ? `MP: ${p.mana}` : rLabel;
 
                 return `<div class="party-member" style="color:${p.quit ? '#444' : p.color}">
@@ -517,7 +516,7 @@
                         if(p.alive && p.x === x && p.y === y) {
                             const h = document.createElement('div');
                             h.className = 'humanoid';
-                            // FIX: Added Rank to Character UI Name Tag
+                            // Character Name Tag showing In-Game Rank
                             h.innerHTML = `<div class="name-tag" style="color:${p.color}">
                                                 ${p.name} <span style="font-size:8px; color:#ccc; display:block;">[${p.displayRank || 'E'}]</span>
                                            </div>
@@ -543,8 +542,8 @@
             vs.style.display = 'flex';
             document.getElementById('winner-name').innerText = data.winner;
             document.getElementById('mp-deduction-info').innerText = (data.winner === myHunter.username) 
-                ? "VICTORY ACHIEVED: +20 MANA POINTS" 
-                : "DEFEAT: MANA POINTS DEDUCTED";
+                ? "VICTORY ACHIEVED: +20 HuP" 
+                : "DEFEAT: HuP DEDUCTED";
         });
     </script>
 </body>
