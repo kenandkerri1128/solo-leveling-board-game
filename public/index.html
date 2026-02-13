@@ -99,9 +99,9 @@
                 <p style="color:var(--sys-gold); font-weight:900; margin:0 0 5px 0;">SYSTEM RULES:</p>
                 <p style="margin:0; font-size:12px; line-height:1.4;">
                     1. Absorb <b style="color:#00ff00;">Mana Gates</b> to grow stronger.<br>
-                    2. <b style="color:red;">RED GATES (S)</b> only appear after a <b style="color:cyan;">RESPAWN</b> has occurred.<br>
-                    3. If you fail to clear the <b style="color:white;">Silver Gate</b>, all hunters resurrect.<br>
-                    4. <b style="color:cyan;">SECOND AWAKENING:</b> Fallen hunters <b>STACK</b> their MP and gain a <b style="color:var(--sys-gold);">+500-1500 MP Bonus</b> on every respawn.
+                    2. <b style="color:red;">RED GATES (S)</b> only appear after a <b style="color:cyan;">RESPAWN</b>.<br>
+                    3. If you lose to the <b style="color:white;">Silver Gate</b>, all hunters resurrect.<br>
+                    4. <b style="color:cyan;">REAWAKENING:</b> The last player keeps their MP. All other hunters gain <b style="color:var(--sys-gold);">+500-1500 MP Bonus</b>.
                 </p>
             </div>
 
@@ -136,7 +136,7 @@
                 <div id="turn-counter">
                     <div id="tc-spawn-text">NEXT INSTANCE: <span id="tc-spawn">3</span> ROUNDS</div>
                     <div id="tc-silver-container" style="display:none; color:#ffffff; font-weight: bold; border: 1px solid white; padding: 5px; margin-top: 5px;">
-                        STEPS REMAINING: <span id="survivor-countdown" style="color:red;">3</span>
+                        STEPS REMAINING: <span id="survivor-countdown" style="color:red;">5</span>
                     </div>
                 </div>
                 <div id="announcement-board" style="flex-grow:1; background:#050505; font-size:11px; margin-top:10px; overflow-y:auto; padding:10px; border:1px solid #222;"></div>
@@ -293,7 +293,7 @@
             
             if (isSurvivor) {
                 document.getElementById('tc-silver-container').style.display = 'block';
-                document.getElementById('survivor-countdown').innerText = 3 - s.survivorTurns;
+                document.getElementById('survivor-countdown').innerText = 5 - s.survivorTurns;
                 document.getElementById('tc-spawn-text').style.opacity = '0.5';
             } else {
                 document.getElementById('tc-silver-container').style.display = 'none';
