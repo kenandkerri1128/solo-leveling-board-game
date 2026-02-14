@@ -34,12 +34,16 @@
         .name-tag { position: absolute; top: -22px; left: 50%; transform: translateX(-50%); font-size: 10px; white-space: nowrap; font-weight: 900; background: #000; border: 1px solid #444; padding: 1px 4px; display: flex; flex-direction: column; align-items: center; z-index: 20; }
         
         /* Sidebars & HUD */
-        .hud-left { width: 280px; background: rgba(0,0,0,0.9); border-right: 2px solid var(--sys-blue); padding: 15px; display: flex; flex-direction: column; height: 650px; overflow-y: auto; margin-right: 20px;}
-        /* New Right HUD for VS and Announcements */
-        .hud-right { width: 280px; background: rgba(0,0,0,0.9); border-left: 2px solid var(--sys-blue); padding: 15px; display: flex; flex-direction: column; height: 650px; overflow-y: auto; margin-left: 20px;}
+        .hud-left { width: 280px; background: rgba(0,0,0,0.9); border-right: 2px solid var(--sys-blue); padding: 15px; display: flex; flex-direction: column; height: 700px; overflow-y: auto; margin-right: 20px;}
+        .hud-right { width: 280px; background: rgba(0,0,0,0.9); border-left: 2px solid var(--sys-blue); padding: 15px; display: flex; flex-direction: column; height: 700px; overflow-y: auto; margin-left: 20px;}
         
         .party-member { font-size: 16px; font-weight: 900; margin-bottom: 8px; border-bottom: 1px solid #222; padding: 5px 0; }
         
+        /* Rank Guide Table */
+        .rank-guide-table { width: 100%; font-size: 10px; border-collapse: collapse; margin-top: auto; color: #888; font-family: 'Orbitron'; }
+        .rank-guide-table td { border-bottom: 1px solid #222; padding: 2px; }
+        .rank-guide-title { color: var(--sys-gold); font-size: 12px; margin-top: 10px; font-weight: 900; border-bottom: 2px solid var(--sys-gold); }
+
         /* Combat Panel */
         #vs-panel { display: none; background: rgba(20,0,0,0.9); border: 2px solid var(--sys-red); padding: 10px; margin-bottom: 15px; flex-direction: column; align-items: center; box-shadow: 0 0 15px var(--sys-red); width: 100%; box-sizing: border-box; }
         .v-fill { height: 6px; background: var(--sys-red); width: 0%; transition: 5.8s linear; margin-top: 10px; }
@@ -143,7 +147,7 @@
         <button class="sys-btn" onclick="showScreen('screen-menu')">BACK</button>
     </div>
 
-    <div id="screen-game" class="screen" style="flex-direction: row; align-items: flex-start; justify-content: center;">
+    <div id="screen-game" class="screen" style="flex-direction: row; align-items: center; justify-content: center;">
         
         <div class="hud-left">
             <h3 id="turn-txt" style="color:var(--sys-gold);">>> SYSTEM TURN</h3>
@@ -161,8 +165,26 @@
                 <div id="vs-data" style="font-size: 18px; text-align: center; margin: 10px 0;"></div>
                 <div style="width:100%; height:4px; background:#111;"><div class="v-fill" id="vs-fill"></div></div>
             </div>
-            <div id="announcement-board" style="width:100%; background:#050505; flex-grow: 1; font-size:12px; margin-bottom:10px; padding:10px; border:1px solid #222; overflow-y:auto;"></div>
-            <button class="sys-btn" style="width:100%; margin:0;" onclick="quitAction()">QUIT QUEST</button>
+            
+            <div id="announcement-board" style="width:100%; background:#050505; height: 150px; font-size:12px; margin-bottom:10px; padding:10px; border:1px solid #222; overflow-y:auto;"></div>
+            
+            <div class="rank-guide-title">HUNTER RANK GUIDE</div>
+            <table class="rank-guide-table">
+                <tr><td style="color:var(--sys-red)">Higher S-Rank</td><td>1000+</td></tr>
+                <tr><td style="color:var(--sys-red)">Lower S-Rank</td><td>901-999</td></tr>
+                <tr><td style="color:var(--sys-silver)">Higher A-Rank</td><td>801-900</td></tr>
+                <tr><td style="color:var(--sys-silver)">Lower A-Rank</td><td>701-800</td></tr>
+                <tr><td style="color:var(--sys-gold)">Higher B-Rank</td><td>601-700</td></tr>
+                <tr><td style="color:var(--sys-gold)">Lower B-Rank</td><td>501-600</td></tr>
+                <tr><td style="color:var(--sys-blue)">Higher C-Rank</td><td>401-500</td></tr>
+                <tr><td style="color:var(--sys-blue)">Lower C-Rank</td><td>301-400</td></tr>
+                <tr><td style="color:var(--sys-green)">Higher D-Rank</td><td>201-300</td></tr>
+                <tr><td style="color:var(--sys-green)">Lower D-Rank</td><td>101-200</td></tr>
+                <tr><td>Higher E-Rank</td><td>51-100</td></tr>
+                <tr><td>Lower E-Rank</td><td>0-50</td></tr>
+            </table>
+
+            <button class="sys-btn" style="width:100%; margin: 15px 0 0 0;" onclick="quitAction()">QUIT QUEST</button>
         </div>
     </div>
 
@@ -266,6 +288,8 @@
 
         socket.on('updateGateList', (list) => {
             const container = document.getElementById('gate-list');
+            // Fix: Clear list before updating to prevent ghost entries
+            container.innerHTML = "";
             container.innerHTML = list.map(g => `<div class="gate-item" onclick="joinGate('${g.id}')"><span>${g.name}</span><span style="color:var(--sys-blue)">${g.count}/4 HUNTERS</span></div>`).join('');
         });
 
@@ -297,6 +321,7 @@
                 <div class="party-member" style="color:${p.quit ? '#444' : p.color}">
                     <div ${p.isAdmin ? "class='admin-glow'":""}>${p.isAdmin?'👑':''}${p.name}</div>
                     <div style="font-size:12px;">MP: ${p.mana} ${p.alive?'':'(KIA)'}</div>
+                    <div style="font-size:10px; color:#888;">${p.rankLabel || ''}</div>
                 </div>`).join('');
 
             for(let y=0; y<15; y++) {
@@ -306,9 +331,10 @@
                     if(s.world[`${x}-${y}`]) cell.style.backgroundColor = s.world[`${x}-${y}`].color;
                     
                     const dist = me ? Math.abs(me.x - x) + Math.abs(me.y - y) : 0;
-                    // UPDATED MOVEMENT: Use stepLimit from server
+                    // FIX: Safety check for 'me' existence to prevent freezing on dead/spectator clients
                     const limit = me ? (me.stepLimit || 1) : 0;
-                    if(isTurn && dist <= limit && dist > 0) {
+                    
+                    if(isTurn && me && me.alive && dist <= limit && dist > 0) {
                         cell.classList.add('valid-move');
                         cell.onclick = () => socket.emit('playerAction', { tx: x, ty: y });
                     }
@@ -349,8 +375,17 @@
             vs.style.display = 'flex';
             document.getElementById('winner-name').innerText = data.winner;
             const isMe = myHunter && data.winner === myHunter.username;
-            document.getElementById('mp-deduction-info').innerText = isMe ? "RANK UP: +20 HuP" : "HUNTER KIA: MANA DEDUCTED";
-            document.getElementById('mp-deduction-info').style.color = isMe ? "var(--sys-green)" : "var(--sys-red)";
+            
+            // FIX: Display specific points if available (Monarch +5, PvP +20)
+            const pts = data.points || 20; 
+            
+            if (isMe) {
+                 document.getElementById('mp-deduction-info').innerText = `VICTORY: +${pts} HuP`;
+                 document.getElementById('mp-deduction-info').style.color = "var(--sys-green)";
+            } else {
+                 document.getElementById('mp-deduction-info').innerText = "HUNTER KIA: MANA DEDUCTED";
+                 document.getElementById('mp-deduction-info').style.color = "var(--sys-red)";
+            }
         });
 
         socket.on('returnToProfile', () => { showScreen('screen-menu'); document.getElementById('victory-screen').style.display = 'none'; });
