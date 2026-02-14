@@ -137,7 +137,7 @@ function syncAllGates() {
 function broadcastGameState(room) { 
     if (!room) return;
     const sanitizedPlayers = room.players.map(p => ({
-        ...p,
+        ...p, // Restores isAdmin and other properties for the Crown
         rankLabel: getFullRankLabel(p.mana), 
         displayRank: getDisplayRank(p.mana)
     }));
@@ -158,7 +158,7 @@ function spawnGate(room) {
 }
 
 function triggerRespawn(room) {
-    io.to(room.id).emit('announcement', "QUEST FAILED: TRIGGERING WORLD RESET...");
+    io.to(room.id).emit('announcement', "SYSTEM: EMERGENCY RESPAWN INITIATED.");
     room.world = {};
     room.globalTurns = 0;
     room.players.forEach(p => {
@@ -183,6 +183,10 @@ async function resolveConflict(room, p) {
 
         if (p.mana >= opponent.mana) { p.mana += opponent.mana; opponent.alive = false; if (!opponent.isAI && room.isOnline) await recordLoss(opponent.name, p.mana); }
         else { opponent.mana += p.mana; p.alive = false; if (!p.isAI && room.isOnline) await recordLoss(p.name, opponent.mana); }
+        
+        // Check for Respawn if all died in PvP/Solo
+        if (room.players.every(pl => !pl.alive)) triggerRespawn(room);
+        
         io.to(room.id).emit('battleEnd');
         return;
     }
@@ -215,7 +219,7 @@ function advanceTurn(room) {
     
     const aliveHunters = room.players.filter(p => p.alive);
     
-    // Spawn Silver Gate if only 1 hunter left
+    // Spawn Silver Gate (1,500 - 17,000 MP)
     if (aliveHunters.length === 1 && !Object.values(room.world).some(g => g.rank === 'Silver')) {
         let sx = Math.floor(Math.random() * 15), sy = Math.floor(Math.random() * 15);
         room.world[`${sx}-${sy}`] = { rank: 'Silver', color: '#ffffff', mana: Math.floor(Math.random() * 15501) + 1500 };
@@ -272,6 +276,10 @@ async function handleExit(socket) {
 
 // --- SOCKET CONNECTION ---
 io.on('connection', (socket) => {
+    // RESTORED: Lobby & Global Listeners
+    socket.on('requestGateList', () => syncAllGates());
+    socket.on('requestWorldRankings', () => broadcastWorldRankings());
+
     socket.on('adminAction', async (data) => {
         if (socket.id !== adminSocketId) return;
         if (data.action === 'kick') {
