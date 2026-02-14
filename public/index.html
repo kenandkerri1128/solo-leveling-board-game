@@ -203,7 +203,6 @@
 
         const POWER_ICONS = { 'DOUBLE DAMAGE': '⚔️', 'GHOST WALK': '👣', 'NETHER SWAP': '🌀' };
 
-        // CRITICAL FIX: Pre-load identity to prevent freeze if GameState arrives before AuthSuccess
         window.onload = function() {
             const stored = sessionStorage.getItem('hunter_creds');
             if(stored) {
@@ -214,7 +213,7 @@
                         document.getElementById('p').value = c.p;
                         currentPass = c.p;
                         
-                        // Temporary identity to allow GameState to render immediately
+                        // Temporary identity to allow GameState to render immediately if already in progress
                         myHunter = { username: c.u, isAdmin: (c.u === 'Kei') }; 
                         
                         socket.emit('authRequest', { type: 'login', u: c.u, p: c.p });
@@ -230,7 +229,7 @@
         }
 
         function playMusic(track) {
-            if(!track) return; // FIX: Don't stop music if server sends null (reconnect)
+            if(!track) return; 
             const audio = document.getElementById('bgm');
             if (currentBGM === track) return;
             currentBGM = track;
@@ -362,16 +361,22 @@
             
             document.getElementById('admin-panel').style.display = d.isAdmin ? 'flex' : 'none';
 
-            // Only obey last_screen if we are NOT already in a game (which sets screen to game via gameStart)
-            const currentScreen = document.querySelector('.screen.active').id;
-            if(currentScreen !== 'screen-game') {
-                const lastScreen = sessionStorage.getItem('last_screen');
-                if(lastScreen && !['screen-game', 'screen-waiting', 'screen-auth'].includes(lastScreen)) {
-                    showScreen(lastScreen);
-                } else {
-                    showScreen('screen-menu'); 
-                }
+            // STRICT RECONNECTION LOGIC:
+            // If the server killed the player (due to refresh), it sends us back here.
+            // We must force the Menu screen unless we are explicitly in a game (handled by gameStart)
+            // Since authSuccess happens on load, we check if the last screen was game/waiting. 
+            // If so, we FORCE menu, because the player is dead/kicked.
+            
+            const lastScreen = sessionStorage.getItem('last_screen');
+            if(lastScreen && ['screen-game', 'screen-waiting'].includes(lastScreen)) {
+                // Force reset to menu because session was killed
+                showScreen('screen-menu'); 
+            } else if (lastScreen && lastScreen !== 'screen-auth') {
+                showScreen(lastScreen);
+            } else {
+                showScreen('screen-menu'); 
             }
+            
             renderRankings();
             if(d.music) playMusic(d.music);
         });
@@ -383,8 +388,8 @@
             if(action === 'kick') socket.emit('adminAction', { action: 'kick', target });
             if(action === 'broadcast') socket.emit('adminAction', { action: 'broadcast', message: msg });
             if(action === 'spectate') {
-                const roomID = document.getElementById('admin-target').value; 
-                socket.emit('adminAction', { action: 'spectate', roomId: roomID });
+                // Send player name or room ID, server handles lookup
+                socket.emit('adminAction', { action: 'spectate', roomId: target });
             }
         }
 
@@ -444,7 +449,6 @@
 
         function playerConfirm() { if(currentGateID) socket.emit('playerConfirm', { gateID: currentGateID }); }
         
-        // FIXED: Clear Gate ID to prevent Ghost Transport
         function leaveWaitingRoom() { 
             currentGateID = null;
             socket.emit('quitGame'); 
@@ -463,7 +467,6 @@
         }
 
         socket.on('gameStart', (data) => { 
-            // FIX: Force Chat Room join here for sync
             if(data && data.roomId) {
                 myRoomID = data.roomId;
                 socket.emit('joinChatRoom', data.roomId);
@@ -473,118 +476,125 @@
         });
 
         socket.on('battleStart', (data) => {
-            const vsPanel = document.getElementById('vs-panel');
-            const vsData = document.getElementById('vs-data');
-            const vsFill = document.getElementById('vs-fill');
-            const skillArea = document.getElementById('skill-area');
-            vsPanel.style.display = 'flex';
-            vsFill.style.transition = 'none';
-            vsFill.style.width = '0%';
-            void vsFill.offsetWidth; 
-            vsFill.style.transition = '5s linear';
-            vsFill.style.width = '100%';
-            const attackerColor = data.hunterColor || '#fff';
-            const defenderColor = data.targetColor || '#fff';
-            vsData.innerHTML = `<div style="font-weight:900; color:white;"><span style="color:${attackerColor}">${data.hunter}</span> <span style="color:var(--sys-red)">VS</span> <span style="color:${defenderColor}">${data.target}</span></div><div style="font-size:12px; color:var(--sys-blue); margin-top:5px;">${data.targetRank}</div>`;
-            skillArea.innerHTML = "";
-            if (data.hunter === myHunter.username && data.hunterPowerUp) {
-                const btn = document.createElement('button');
-                btn.className = 'skill-activate-btn';
-                btn.innerHTML = `ACTIVATE ${POWER_ICONS[data.hunterPowerUp] || ''} ${data.hunterPowerUp}`;
-                btn.onclick = () => { socket.emit('activateSkill', { powerUp: data.hunterPowerUp }); btn.disabled = true; btn.style.opacity = '0.5'; btn.innerText = "SKILL ACTIVE"; };
-                skillArea.appendChild(btn);
-            }
+            // SAFE GUARD: Wrap in try-catch to prevent freezes
+            try {
+                const vsPanel = document.getElementById('vs-panel');
+                const vsData = document.getElementById('vs-data');
+                const vsFill = document.getElementById('vs-fill');
+                const skillArea = document.getElementById('skill-area');
+                vsPanel.style.display = 'flex';
+                vsFill.style.transition = 'none';
+                vsFill.style.width = '0%';
+                void vsFill.offsetWidth; 
+                vsFill.style.transition = '5s linear';
+                vsFill.style.width = '100%';
+                const attackerColor = data.hunterColor || '#fff';
+                const defenderColor = data.targetColor || '#fff';
+                vsData.innerHTML = `<div style="font-weight:900; color:white;"><span style="color:${attackerColor}">${data.hunter}</span> <span style="color:var(--sys-red)">VS</span> <span style="color:${defenderColor}">${data.target}</span></div><div style="font-size:12px; color:var(--sys-blue); margin-top:5px;">${data.targetRank}</div>`;
+                skillArea.innerHTML = "";
+                if (data.hunter === myHunter.username && data.hunterPowerUp) {
+                    const btn = document.createElement('button');
+                    btn.className = 'skill-activate-btn';
+                    btn.innerHTML = `ACTIVATE ${POWER_ICONS[data.hunterPowerUp] || ''} ${data.hunterPowerUp}`;
+                    btn.onclick = () => { socket.emit('activateSkill', { powerUp: data.hunterPowerUp }); btn.disabled = true; btn.style.opacity = '0.5'; btn.innerText = "SKILL ACTIVE"; };
+                    skillArea.appendChild(btn);
+                }
+            } catch(e) { console.error(e); }
         });
 
         socket.on('battleEnd', () => { document.getElementById('vs-panel').style.display = 'none'; });
 
         socket.on('gameStateUpdate', (s) => {
-            if (!s.active) return; 
+            // CRASH PROTECTION: Wrap rendering in try-catch
+            try {
+                if (!s.active) return; 
 
-            // FIX: Self-repair UI if battle is stuck
-            document.getElementById('vs-panel').style.display = 'none';
-            
-            const board = document.getElementById('game-board');
-            board.innerHTML = "";
-
-            // FIX: Robust check for "me". If state arrives before Auth, we use socket.id from server or match by name
-            let me = s.players.find(p => p.id === socket.id);
-            if (!me && myHunter) {
-                me = s.players.find(p => p.name === myHunter.username);
-            }
-
-            // Only block rendering if we truly don't know who we are (unlikely with window.onload fix)
-            if(!me && (!myHunter || !myHunter.isAdmin)) return; 
-            
-            const observer = me || { x: -10, y: -10 }; 
-
-            const isTurn = me ? (s.players[s.turn].id === socket.id || s.players[s.turn].name === observer.name) : false;
-            
-            const silverGate = Object.values(s.world).find(cell => cell.rank === 'Silver');
-            document.getElementById('tc-silver-container').style.display = silverGate ? 'block' : 'none';
-            if(silverGate) document.getElementById('silver-power').innerText = silverGate.mana;
-
-            document.getElementById('tc-spawn').innerText = 3 - (s.globalTurns % 3);
-            document.getElementById('turn-txt').innerText = isTurn ? ">> YOUR MOVE" : `>> ${s.players[s.turn].name.toUpperCase()} ACTING`;
-
-            document.getElementById('party-list').innerHTML = s.players.map(p => {
-                let status = p.quit ? '(QUIT)' : (p.alive ? '' : '(KIA)');
-                let rLabel = p.displayRank || 'Rank E'; 
-                const wRankIdx = currentWorldRankings.findIndex(h => h.username === p.name);
-                const wRankDisplay = wRankIdx !== -1 ? `#${wRankIdx + 1}` : '#??';
+                // Self-repair UI if battle is stuck
+                document.getElementById('vs-panel').style.display = 'none';
                 
-                const pUpIcon = p.powerUp ? ` <span style="color:var(--sys-gold); animation: pulse 0.5s infinite alternate;">${POWER_ICONS[p.powerUp]}</span>` : '';
-                const mpValue = (p.id === socket.id || (myHunter && myHunter.isAdmin)) ? `MP: ${p.mana}` : rLabel;
+                const board = document.getElementById('game-board');
+                board.innerHTML = "";
 
-                const adminClass = p.isAdmin ? "class='admin-glow'" : "";
-                const crown = p.isAdmin ? "👑 " : "";
-
-                return `<div class="party-member" style="color:${p.quit ? '#444' : p.color}">
-                            <div style="font-size: 10px; color: #888; display:flex; justify-content: space-between;">
-                                <span>WORLD RANK: ${wRankDisplay}</span>
-                                <span ${adminClass}>${p.id === socket.id || (myHunter && myHunter.isAdmin) ? rLabel : ''}</span>
-                            </div>
-                            <div style="display:flex; justify-content:space-between;">
-                                <span ${adminClass}>${crown}${p.name}${pUpIcon}</span>
-                                <span style="font-size:12px;">${mpValue} ${status}</span>
-                            </div>
-                        </div>`;
-            }).join('');
-
-            for(let y=0; y<15; y++) {
-                for(let x=0; x<15; x++) {
-                    const cell = document.createElement('div');
-                    cell.className = 'cell';
-                    if(s.world[`${x}-${y}`]) cell.style.backgroundColor = s.world[`${x}-${y}`].color;
-                    
-                    const dist = Math.abs(observer.x - x) + Math.abs(observer.y - y);
-                    if(isTurn && dist <= (s.mode === 'Monarch' ? 3 : 2) && dist > 0) {
-                        cell.classList.add('valid-move');
-                        cell.onclick = () => socket.emit('playerAction', { tx: x, ty: y });
-                    }
-
-                    s.players.forEach(p => {
-                        if(p.alive && p.x === x && p.y === y) {
-                            const h = document.createElement('div');
-                            h.className = 'humanoid';
-                            const adminClass = p.isAdmin ? "admin-glow" : "";
-                            const crown = p.isAdmin ? "👑 " : "";
-                            const pUpIcon = p.powerUp ? ` ${POWER_ICONS[p.powerUp]}` : '';
-                            
-                            h.innerHTML = `<div class="name-tag ${adminClass}" style="color:${p.color}">
-                                                ${crown}${p.name}${pUpIcon} <span style="font-size:8px; color:#ccc; display:block;">[${p.displayRank || 'E'}]</span>
-                                           </div>
-                                           <div class="h-head" style="background:${p.color}"></div>
-                                           <div class="h-body" style="background:${p.color}"></div>`;
-                            cell.appendChild(h);
-                        }
-                    });
-                    board.appendChild(cell);
+                // Robust check for "me"
+                let me = s.players.find(p => p.id === socket.id);
+                if (!me && myHunter) {
+                    me = s.players.find(p => p.name === myHunter.username);
                 }
-            }
+
+                // If spectator, just use dummy coords so map renders
+                const observer = me || { x: -10, y: -10 }; 
+                
+                // Safe check for turn player
+                const turnPlayer = s.players[s.turn];
+                const isTurn = (me && turnPlayer) ? (turnPlayer.id === socket.id || turnPlayer.name === observer.name) : false;
+                
+                const silverGate = Object.values(s.world).find(cell => cell.rank === 'Silver');
+                document.getElementById('tc-silver-container').style.display = silverGate ? 'block' : 'none';
+                if(silverGate) document.getElementById('silver-power').innerText = silverGate.mana;
+
+                document.getElementById('tc-spawn').innerText = 3 - (s.globalTurns % 3);
+                if(turnPlayer) {
+                    document.getElementById('turn-txt').innerText = isTurn ? ">> YOUR MOVE" : `>> ${turnPlayer.name.toUpperCase()} ACTING`;
+                }
+
+                document.getElementById('party-list').innerHTML = s.players.map(p => {
+                    let status = p.quit ? '(QUIT)' : (p.alive ? '' : '(KIA)');
+                    let rLabel = p.displayRank || 'Rank E'; 
+                    const wRankIdx = currentWorldRankings.findIndex(h => h.username === p.name);
+                    const wRankDisplay = wRankIdx !== -1 ? `#${wRankIdx + 1}` : '#??';
+                    
+                    const pUpIcon = p.powerUp ? ` <span style="color:var(--sys-gold); animation: pulse 0.5s infinite alternate;">${POWER_ICONS[p.powerUp]}</span>` : '';
+                    const mpValue = (p.id === socket.id || (myHunter && myHunter.isAdmin)) ? `MP: ${p.mana}` : rLabel;
+
+                    const adminClass = p.isAdmin ? "class='admin-glow'" : "";
+                    const crown = p.isAdmin ? "👑 " : "";
+
+                    return `<div class="party-member" style="color:${p.quit ? '#444' : p.color}">
+                                <div style="font-size: 10px; color: #888; display:flex; justify-content: space-between;">
+                                    <span>WORLD RANK: ${wRankDisplay}</span>
+                                    <span ${adminClass}>${p.id === socket.id || (myHunter && myHunter.isAdmin) ? rLabel : ''}</span>
+                                </div>
+                                <div style="display:flex; justify-content:space-between;">
+                                    <span ${adminClass}>${crown}${p.name}${pUpIcon}</span>
+                                    <span style="font-size:12px;">${mpValue} ${status}</span>
+                                </div>
+                            </div>`;
+                }).join('');
+
+                for(let y=0; y<15; y++) {
+                    for(let x=0; x<15; x++) {
+                        const cell = document.createElement('div');
+                        cell.className = 'cell';
+                        if(s.world[`${x}-${y}`]) cell.style.backgroundColor = s.world[`${x}-${y}`].color;
+                        
+                        const dist = Math.abs(observer.x - x) + Math.abs(observer.y - y);
+                        if(isTurn && dist <= (s.mode === 'Monarch' ? 3 : 2) && dist > 0) {
+                            cell.classList.add('valid-move');
+                            cell.onclick = () => socket.emit('playerAction', { tx: x, ty: y });
+                        }
+
+                        s.players.forEach(p => {
+                            if(p.alive && p.x === x && p.y === y) {
+                                const h = document.createElement('div');
+                                h.className = 'humanoid';
+                                const adminClass = p.isAdmin ? "admin-glow" : "";
+                                const crown = p.isAdmin ? "👑 " : "";
+                                const pUpIcon = p.powerUp ? ` ${POWER_ICONS[p.powerUp]}` : '';
+                                
+                                h.innerHTML = `<div class="name-tag ${adminClass}" style="color:${p.color}">
+                                                    ${crown}${p.name}${pUpIcon} <span style="font-size:8px; color:#ccc; display:block;">[${p.displayRank || 'E'}]</span>
+                                               </div>
+                                               <div class="h-head" style="background:${p.color}"></div>
+                                               <div class="h-body" style="background:${p.color}"></div>`;
+                                cell.appendChild(h);
+                            }
+                        });
+                        board.appendChild(cell);
+                    }
+                }
+            } catch(e) { console.error("Game Render Error:", e); }
         });
 
-        // FIXED: Quit Action
         function quitAction() { socket.emit('quitGame'); }
         
         socket.on('returnToProfile', () => { resetGameUI(); showScreen('screen-menu'); });
