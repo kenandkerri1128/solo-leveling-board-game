@@ -81,7 +81,7 @@ async function broadcastWorldRankings() {
             manapoints: r.hunterpoints, 
             hunterpoints: r.hunterpoints,
             rankLabel: getFullRankLabel(r.hunterpoints),
-            isAdmin: r.username === ADMIN_NAME // Flag for Frontend Glow/Crown
+            isAdmin: r.username === ADMIN_NAME 
         }));
         io.emit('updateWorldRankings', formattedRankings);
     }
@@ -130,11 +130,13 @@ async function recordLoss(username, winnerInGameMana) {
     }
 }
 
+// FIXED: Process Win now handles Monarch Mode (+5) vs Multiplayer (+20)
 async function processWin(room, winnerName) {
     const { data: u } = await supabase.from('Hunters').select('hunterpoints, wins').eq('username', winnerName).maybeSingle();
     if (u) {
+        const hupGain = room.isOnline ? 20 : 5;
         await supabase.from('Hunters').update({ 
-            hunterpoints: u.hunterpoints + 20, 
+            hunterpoints: u.hunterpoints + hupGain, 
             wins: (u.wins || 0) + 1 
         }).eq('username', winnerName);
     }
@@ -150,9 +152,11 @@ async function processWin(room, winnerName) {
     }
 
     setTimeout(() => { 
-        io.to(room.id).emit('returnToProfile'); 
-        if(rooms[room.id]) delete rooms[room.id];
-        syncAllGates();
+        if(rooms[room.id]) {
+            io.to(room.id).emit('returnToProfile'); 
+            delete rooms[room.id];
+            syncAllGates();
+        }
     }, 6000); 
 }
 
@@ -177,9 +181,8 @@ function isPathBlocked(room, x1, y1, x2, y2) {
 // --- SOCKET CONNECTION ---
 io.on('connection', (socket) => {
     
-    // --- ADMIN ACTIONS ---
     socket.on('adminAction', (data) => {
-        if (socket.id !== adminSocketId) return; // Security Check
+        if (socket.id !== adminSocketId) return; 
 
         if (data.action === 'kick') {
             const targetSocketId = connectedUsers[data.target];
@@ -240,7 +243,6 @@ io.on('connection', (socket) => {
         if (user) {
             connectedUsers[user.username] = socket.id; 
             
-            // --- ADMIN IDENTIFICATION ---
             const isAdmin = (user.username === ADMIN_NAME);
             if (isAdmin) adminSocketId = socket.id;
 
@@ -281,7 +283,7 @@ io.on('connection', (socket) => {
             text: message, 
             rank: rank, 
             timestamp: new Date().toLocaleTimeString(),
-            isAdmin: (senderName === ADMIN_NAME) // Flag for chat glow
+            isAdmin: (senderName === ADMIN_NAME)
         };
 
         if (!roomId || roomId === 'global' || roomId === 'null') { io.emit('receiveMessage', chatData); } 
@@ -452,7 +454,6 @@ io.on('connection', (socket) => {
         if (rooms[room.id]) advanceTurn(room);
     });
 
-    // UPDATED BROADCAST: Ensure PowerUps are sent to owner/admin
     function broadcastGameState(room) { 
         const roomClients = io.sockets.adapter.rooms.get(room.id);
         if (roomClients) {
@@ -460,9 +461,7 @@ io.on('connection', (socket) => {
                 const isSpectatingAdmin = (socketId === adminSocketId);
                 const sanitizedPlayers = room.players.map(p => ({
                     ...p,
-                    // Mana visible to Owner OR Admin
                     mana: (p.id === socketId || isSpectatingAdmin) ? p.mana : null, 
-                    // PowerUp visible to Owner OR Admin (Fix for missing icon)
                     powerUp: (p.id === socketId || isSpectatingAdmin) ? p.powerUp : null,
                     rankLabel: getFullRankLabel(p.mana), 
                     displayRank: getDisplayRank(p.mana)
@@ -551,15 +550,17 @@ async function resolveConflict(room, p) {
             p.mana += gate.mana;
             delete room.world[coord];
             if (gate.rank === 'Silver') {
-                if (!p.isAI && room.isOnline) {
+                if (!p.isAI) {
                     await processWin(room, p.name);
                 } else {
                     io.to(room.id).emit('victoryEvent', { winner: p.name });
                     room.active = false;
                     setTimeout(() => { 
-                        io.to(room.id).emit('returnToProfile'); 
-                        if(rooms[room.id]) delete rooms[room.id];
-                        syncAllGates();
+                        if(rooms[room.id]) {
+                            io.to(room.id).emit('returnToProfile'); 
+                            delete rooms[room.id];
+                            syncAllGates();
+                        }
                     }, 6000); 
                 }
             } else {
@@ -617,15 +618,31 @@ function spawnGate(room) {
     room.world[`${x}-${y}`] = { rank, color: RANK_COLORS[rank], mana: Math.floor(Math.random() * (range[1] - range[0] + 1)) + range[0] };
 }
 
+// FIXED: Advance Turn hardened with better guards and turn logic to prevent infinite looping
 function advanceTurn(room) {
-    if (!rooms[room.id]) return; 
+    if (!rooms[room.id] || !room.active) return; 
+    
     const aliveCount = room.players.filter(p => p.alive).length;
-    if (aliveCount === 1 && room.survivorTurns >= 5) { triggerRespawn(room, room.players[room.turn].id); return; }
+    if (aliveCount === 0) return; // Immediate guard against empty rooms
+
+    if (aliveCount === 1 && room.survivorTurns >= 5) { 
+        triggerRespawn(room, room.players[room.turn].id); 
+        return; 
+    }
+    
     room.globalTurns++;
     if (room.globalTurns % (room.players.length * 3) === 0) for(let i=0; i<5; i++) spawnGate(room);
-    let attempts = 0;
-    do { room.turn = (room.turn + 1) % room.players.length; attempts++; } while (!room.players[room.turn].alive && attempts < 10);
     
+    // Find next valid turn
+    let attempts = 0;
+    let nextIndex = room.turn;
+    do { 
+        nextIndex = (nextIndex + 1) % room.players.length; 
+        attempts++; 
+    } while (!room.players[nextIndex].alive && attempts < room.players.length);
+    
+    room.turn = nextIndex;
+
     if (aliveCount === 1 && !Object.values(room.world).some(g => g.rank === 'Silver')) {
         let sx, sy, validPos = false;
         const survivor = room.players.find(p => p.alive);
@@ -644,7 +661,7 @@ function advanceTurn(room) {
     const nextPlayer = room.players[room.turn];
     if (nextPlayer.isAI && nextPlayer.alive) {
         setTimeout(async () => {
-            if (!rooms[room.id] || room.turn !== room.players.indexOf(nextPlayer)) return;
+            if (!rooms[room.id] || !room.active || room.turn !== room.players.indexOf(nextPlayer)) return;
             let tx = nextPlayer.x, ty = nextPlayer.y;
             if (room.mode === 'Monarch') {
                 let targets = [];
@@ -659,8 +676,9 @@ function advanceTurn(room) {
             if (!isPathBlocked(room, nextPlayer.x, nextPlayer.y, tx, ty)) { nextPlayer.x = tx; nextPlayer.y = ty; await resolveConflict(room, nextPlayer); }
             if (rooms[room.id]) advanceTurn(room);
         }, 800);
+    } else {
+        broadcastGameState(room);
     }
-    if (rooms[room.id]) broadcastGameState(room);
 }
 
 const PORT = process.env.PORT || 3000;
