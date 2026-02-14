@@ -26,7 +26,7 @@ const ADMIN_NAME = "Kei";
 const AI_NAMES = ["Sung Jinwoo", "Cha Hae-In", "Baek Yoonho", "Choi Jong-In"];
 const PLAYER_COLORS = ['#00d2ff', '#ff3e3e', '#bcff00', '#ff00ff']; 
 const RANK_COLORS = { 'E': '#00ff00', 'D': '#99ff00', 'C': '#ffff00', 'B': '#ff9900', 'A': '#ff00ff', 'S': '#ff0000', 'Silver': '#ffffff' };
-const POWER_UPS = ['DOUBLE DAMAGE', 'GHOST WALK', 'NETHER SWAP'];
+const POWER_UPS = ['DOUBLE DAMAGE', 'GHOST WALK', 'NETHER SWAP', "GOD'S STRENGTH"];
 const corners = [{x:0,y:0}, {x:14,y:0}, {x:0,y:14}, {x:14,y:14}];
 
 // --- RANKING HELPERS ---
@@ -134,7 +134,7 @@ async function processWin(room, winnerName) {
         }).eq('username', winnerName);
     }
     
-    io.to(room.id).emit('victoryEvent', { winner: winnerName });
+    io.to(room.id).emit('victoryEvent', { winner: winnerName, points: gain });
     room.active = false;
     broadcastWorldRankings();
     
@@ -164,7 +164,7 @@ function syncAllGates() {
 function broadcastGameState(room) { 
     if (!room) return;
     const sanitizedPlayers = room.players.map(p => ({
-        ...p, // Restores isAdmin, color, etc for Ranking Board
+        ...p, 
         rankLabel: getFullRankLabel(p.mana), 
         displayRank: getDisplayRank(p.mana),
         stepLimit: getStepLimit(p.mana)
@@ -209,9 +209,24 @@ async function resolveConflict(room, p) {
         await new Promise(r => setTimeout(r, 6000));
         if(!rooms[room.id]) return;
 
-        if (p.mana >= opponent.mana) { p.mana += opponent.mana; opponent.alive = false; if (!opponent.isAI && room.isOnline) await recordLoss(opponent.name, p.mana); }
-        else { opponent.mana += p.mana; p.alive = false; if (!p.isAI && room.isOnline) await recordLoss(p.name, opponent.mana); }
-        
+        // GOD'S STRENGTH LOGIC
+        if (p.activePowerUp === "GOD'S STRENGTH" || opponent.activePowerUp === "GOD'S STRENGTH") {
+            const god = (p.activePowerUp === "GOD'S STRENGTH") ? p : opponent;
+            const mortal = (p.activePowerUp === "GOD'S STRENGTH") ? opponent : p;
+            
+            god.mana += mortal.mana;
+            mortal.alive = false;
+            god.activePowerUp = null; // Consume powerup
+            io.to(room.id).emit('announcement', `${god.name} USED GOD'S STRENGTH!`);
+            
+            if (!mortal.isAI && room.isOnline) await recordLoss(mortal.name, god.mana);
+        } 
+        else {
+            // Standard Battle
+            if (p.mana >= opponent.mana) { p.mana += opponent.mana; opponent.alive = false; if (!opponent.isAI && room.isOnline) await recordLoss(opponent.name, p.mana); }
+            else { opponent.mana += p.mana; p.alive = false; if (!p.isAI && room.isOnline) await recordLoss(p.name, opponent.mana); }
+        }
+
         // Check for Respawn if all died in PvP/Solo
         if (room.players.every(pl => !pl.alive)) triggerRespawn(room);
         
@@ -225,6 +240,7 @@ async function resolveConflict(room, p) {
         await new Promise(r => setTimeout(r, 6000));
         if(!rooms[room.id]) return;
 
+        // God's Strength does NOT work on gates
         if (p.mana >= gate.mana) {
             p.mana += gate.mana; delete room.world[coord];
             if (gate.rank === 'Silver') return await processWin(room, p.name);
@@ -262,7 +278,7 @@ function advanceTurn(room) {
 
     if (nextP.isAI && nextP.alive) {
         setTimeout(async () => {
-            if (!rooms[room.id] || !room.active) return; // FIX: Prevent move after game end
+            if (!rooms[room.id] || !room.active) return;
             
             try {
                 let tx = nextP.x, ty = nextP.y;
@@ -273,7 +289,6 @@ function advanceTurn(room) {
                     Object.keys(room.world).forEach(c => targets.push({x: parseInt(c.split('-')[0]), y: parseInt(c.split('-')[1])}));
                     room.players.forEach(pl => { if(pl.alive && pl.id !== nextP.id) targets.push({x: pl.x, y: pl.y}); });
                     
-                    // FIX: Ensure targets exist before sorting to prevent crash
                     if (targets.length > 0) {
                         targets.sort((a,b) => (Math.abs(nextP.x-a.x)+Math.abs(nextP.y-a.y)) - (Math.abs(nextP.x-b.x)+Math.abs(nextP.y-b.y)));
                         
@@ -294,7 +309,6 @@ function advanceTurn(room) {
                            }
                         }
                     } else {
-                        // Fallback random move if no targets
                         tx += (Math.random()>0.5?1:-1); 
                         ty += (Math.random()>0.5?1:-1); 
                     }
@@ -309,7 +323,7 @@ function advanceTurn(room) {
                 advanceTurn(room);
             } catch (error) {
                 console.error("AI Error:", error);
-                advanceTurn(room); // Recover turn if AI crashes
+                advanceTurn(room);
             }
         }, 800);
     } else {
@@ -319,18 +333,23 @@ function advanceTurn(room) {
 
 async function handleExit(socket) {
     const room = Object.values(rooms).find(r => r.players.some(p => p.id === socket.id));
+    
+    // REMOVE FROM CONNECTED USERS
+    const username = Object.keys(connectedUsers).find(key => connectedUsers[key] === socket.id);
+    if(username) delete connectedUsers[username];
+
     if (room) {
         // --- CASE 1: LOBBY (WAITING ROOM) ---
         if (!room.active) {
-             socket.leave(room.id); // FIX: Remove from socket room immediately
-             room.players = room.players.filter(p => p.id !== socket.id); // FIX: Remove from array
+             socket.leave(room.id); 
+             room.players = room.players.filter(p => p.id !== socket.id); 
              
              if (room.players.length === 0) {
-                 delete rooms[room.id]; // FIX: Delete empty room
+                 delete rooms[room.id]; 
              } else {
-                 io.to(room.id).emit('waitingRoomUpdate', room); // FIX: Notify remaining players
+                 io.to(room.id).emit('waitingRoomUpdate', room); 
              }
-             syncAllGates(); // FIX: Update gate list for everyone
+             syncAllGates(); // IMMEDIATE UPDATE
              return; 
         }
 
@@ -338,7 +357,8 @@ async function handleExit(socket) {
         const p = room.players.find(pl => pl.id === socket.id);
         if (p) {
             p.quit = true; p.alive = false;
-            socket.leave(room.id); // Ensure no "ghost" socket presence
+            socket.leave(room.id); 
+            socket.emit('returnToProfile'); // UNFREEZE QUITTER
             
             if (room.isOnline) {
                 await recordLoss(p.name, 0, true);
@@ -347,13 +367,10 @@ async function handleExit(socket) {
                 if (active.length === 1 && room.active) {
                     await processWin(room, active[0].name);
                 }
-                // FIX: Cleanup empty room if everyone quits
                 if (active.length === 0) {
                      delete rooms[room.id];
                 }
             } else {
-                // Single Player Quit
-                socket.emit('returnToProfile');
                 delete rooms[room.id];
             }
         }
@@ -364,7 +381,6 @@ async function handleExit(socket) {
 
 // --- SOCKET CONNECTION ---
 io.on('connection', (socket) => {
-    // RESTORED: Lobby & Global Listeners
     socket.on('requestGateList', () => syncAllGates());
     socket.on('requestWorldRankings', () => broadcastWorldRankings());
 
@@ -397,14 +413,47 @@ io.on('connection', (socket) => {
     });
 
     socket.on('authRequest', async (data) => {
-        const { data: user } = await supabase.from('Hunters').select('*').eq('username', data.u).eq('password', data.p).maybeSingle();
-        if (user) {
-            connectedUsers[user.username] = socket.id;
-            if (user.username === ADMIN_NAME) adminSocketId = socket.id;
-            sendProfileUpdate(socket, user.username);
-            syncAllGates();
-            broadcastWorldRankings();
-        } else socket.emit('authError', "INVALID ACCESS.");
+        if (data.type === 'signup') {
+             // DUPLICATE NAME CHECK
+             const { data: existing } = await supabase.from('Hunters').select('username').eq('username', data.u).maybeSingle();
+             if (existing) {
+                 socket.emit('authError', "USERNAME TAKEN.");
+                 return;
+             }
+             const { error } = await supabase.from('Hunters').insert([{ username: data.u, password: data.p, hunterpoints: 0 }]);
+             if (error) socket.emit('authError', "REGISTRATION FAILED.");
+             else socket.emit('authError', "REGISTRATION SUCCESS! PLEASE LOGIN.");
+        } else {
+             // DUPLICATE LOGIN CHECK
+             if (connectedUsers[data.u]) {
+                 socket.emit('authError', "ALREADY LOGGED IN.");
+                 return;
+             }
+             const { data: user } = await supabase.from('Hunters').select('*').eq('username', data.u).eq('password', data.p).maybeSingle();
+             if (user) {
+                 connectedUsers[user.username] = socket.id;
+                 if (user.username === ADMIN_NAME) adminSocketId = socket.id;
+                 sendProfileUpdate(socket, user.username);
+                 syncAllGates();
+                 broadcastWorldRankings();
+             } else {
+                 socket.emit('authError', "INVALID CREDENTIALS.");
+             }
+        }
+    });
+
+    socket.on('activatePowerUp', (data) => {
+        const room = Object.values(rooms).find(r => r.players.some(p => p.id === socket.id));
+        if (room && room.active) {
+            const p = room.players.find(pl => pl.id === socket.id);
+            if (p && p.alive) {
+                // For simplicity, we toggle God's Strength if requested
+                if (data.type === "GOD'S STRENGTH") {
+                    p.activePowerUp = "GOD'S STRENGTH";
+                    io.to(room.id).emit('announcement', `${p.name} ACTIVATED GOD'S STRENGTH!`);
+                }
+            }
+        }
     });
 
     socket.on('joinChatRoom', (roomId) => {
@@ -424,7 +473,7 @@ io.on('connection', (socket) => {
     socket.on('createGate', async (data) => {
         const id = `gate_${Date.now()}`;
         const wr = await getWorldRankDisplay(data.host);
-        rooms[id] = { id, name: data.name, isOnline: true, active: false, turn: 0, globalTurns: 0, players: [{ id: socket.id, name: data.host, x: 0, y: 0, mana: 150, worldsRankLabel: wr.label, worldsRankColor: wr.color, alive: true, confirmed: false, color: PLAYER_COLORS[0], isAI: false, quit: false, powerUp: null, isAdmin: data.host === ADMIN_NAME }], world: {} };
+        rooms[id] = { id, name: data.name, isOnline: true, active: false, turn: 0, globalTurns: 0, players: [{ id: socket.id, name: data.host, x: 0, y: 0, mana: 150, worldsRankLabel: wr.label, worldsRankColor: wr.color, alive: true, confirmed: false, color: PLAYER_COLORS[0], isAI: false, quit: false, powerUp: null, activePowerUp: null, isAdmin: data.host === ADMIN_NAME }], world: {} };
         socket.join(id);
         io.to(id).emit('waitingRoomUpdate', rooms[id]);
         syncAllGates();
@@ -435,7 +484,7 @@ io.on('connection', (socket) => {
         if (room && room.players.length < 4) {
             const wr = await getWorldRankDisplay(data.user);
             const idx = room.players.length;
-            room.players.push({ id: socket.id, name: data.user, x: corners[idx].x, y: corners[idx].y, mana: 150, worldsRankLabel: wr.label, worldsRankColor: wr.color, alive: true, confirmed: false, color: PLAYER_COLORS[idx], isAI: false, quit: false, powerUp: null, isAdmin: data.user === ADMIN_NAME });
+            room.players.push({ id: socket.id, name: data.user, x: corners[idx].x, y: corners[idx].y, mana: 150, worldsRankLabel: wr.label, worldsRankColor: wr.color, alive: true, confirmed: false, color: PLAYER_COLORS[idx], isAI: false, quit: false, powerUp: null, activePowerUp: null, isAdmin: data.user === ADMIN_NAME });
             socket.join(data.gateID);
             io.to(data.gateID).emit('waitingRoomUpdate', room);
             syncAllGates();
@@ -459,9 +508,9 @@ io.on('connection', (socket) => {
     socket.on('startSoloAI', async (data) => {
         const id = `solo_${socket.id}_${Date.now()}`;
         rooms[id] = {
-            id, active: true, turn: 0, mode: data.diff, globalTurns: 0, isOnline: false,
+            id, active: true, turn: 0, mode: data.mode, globalTurns: 0, isOnline: false,
             players: [
-                { id: socket.id, name: data.user, x: 0, y: 0, mana: 150, alive: true, isAI: false, color: PLAYER_COLORS[0], powerUp: null, isAdmin: data.user === ADMIN_NAME },
+                { id: socket.id, name: data.user, x: 0, y: 0, mana: 150, alive: true, isAI: false, color: PLAYER_COLORS[0], powerUp: null, activePowerUp: null, isAdmin: data.user === ADMIN_NAME },
                 { id: 'ai1', name: AI_NAMES[1], x: 14, y: 0, mana: 200, alive: true, isAI: true, color: PLAYER_COLORS[1] },
                 { id: 'ai2', name: AI_NAMES[2], x: 0, y: 14, mana: 200, alive: true, isAI: true, color: PLAYER_COLORS[2] },
                 { id: 'ai3', name: AI_NAMES[3], x: 14, y: 14, mana: 200, alive: true, isAI: true, color: PLAYER_COLORS[3] }
@@ -479,11 +528,9 @@ io.on('connection', (socket) => {
         const p = room.players[room.turn];
         if (!p || p.id !== socket.id) return;
         
-        // Calculate allowed step distance based on Rank
         const stepLimit = getStepLimit(p.mana);
         const dist = Math.abs(p.x - data.tx) + Math.abs(p.y - data.ty);
         
-        // Only move if within rank limit
         if (dist <= stepLimit) {
             p.x = data.tx; p.y = data.ty;
             await resolveConflict(room, p);
