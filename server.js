@@ -112,18 +112,11 @@ async function sendProfileUpdate(socket, username) {
 }
 
 // --- GAME LOGIC HELPERS ---
-function calculateDeduction(winnerInGameMana) {
-    const mpStr = winnerInGameMana.toString();
-    let deduction = 0;
-    if (winnerInGameMana >= 10000) deduction = parseInt(mpStr.substring(0, 2));
-    else deduction = parseInt(mpStr.substring(0, 1));
-    return Math.max(1, deduction);
-}
-
-async function recordLoss(username, winnerInGameMana) {
+// FIXED: Simplified to fixed -5 for regular loss
+async function recordLoss(username, isQuit) {
     const { data: u } = await supabase.from('Hunters').select('hunterpoints, losses').eq('username', username).maybeSingle();
     if (u) {
-        const lossAmount = calculateDeduction(winnerInGameMana);
+        const lossAmount = isQuit ? 20 : 5; // -20 for Quit, -5 for Death
         await supabase.from('Hunters').update({ 
             hunterpoints: Math.max(0, u.hunterpoints - lossAmount), 
             losses: (u.losses || 0) + 1 
@@ -140,6 +133,9 @@ async function processWin(room, winnerName) {
             wins: (u.wins || 0) + 1 
         }).eq('username', winnerName);
     }
+    
+    // Store winner in room object so reconnected players see it
+    room.winner = winnerName;
     
     io.to(room.id).emit('victoryEvent', { winner: winnerName });
     room.active = false;
@@ -233,11 +229,16 @@ io.on('connection', (socket) => {
     });
 
     socket.on('authRequest', async (data) => {
+        // Handle "Zombie" connections (same user, different tab/refresh)
         if (connectedUsers[data.u]) {
-            const oldSocket = io.sockets.sockets.get(connectedUsers[data.u]);
+            const oldSocketId = connectedUsers[data.u];
+            const oldSocket = io.sockets.sockets.get(oldSocketId);
+            
+            // If the user is refreshing, we simply overwrite the old socket reference
+            // We DO NOT throw error if it's likely a refresh (old socket disconnected)
             if (oldSocket && oldSocket.connected) {
                 return socket.emit('authError', "HUNTER ALREADY ACTIVE ON ANOTHER TERMINAL.");
-            } else { delete connectedUsers[data.u]; }
+            }
         }
 
         if (data.type === 'signup') {
@@ -255,21 +256,53 @@ io.on('connection', (socket) => {
             const isAdmin = (user.username === ADMIN_NAME);
             if (isAdmin) adminSocketId = socket.id;
 
-            const { count } = await supabase.from('Hunters').select('*', { count: 'exact', head: true }).gt('hunterpoints', user.hunterpoints);
-            const exactRank = (count || 0) + 1;
-            const letter = getSimpleRank(user.hunterpoints);
-            
-            socket.emit('authSuccess', { 
-                username: user.username, 
-                mana: user.hunterpoints, 
-                rank: getFullRankLabel(user.hunterpoints), 
-                color: RANK_COLORS[letter],
-                wins: user.wins || 0,
-                losses: user.losses || 0,
-                worldRank: exactRank,
-                music: 'menu.mp3',
-                isAdmin: isAdmin 
+            // RECONNECTION LOGIC: Check if user is in an active game
+            let reconnectedRoomId = null;
+            Object.values(rooms).forEach(r => {
+                const player = r.players.find(p => p.name === user.username);
+                if (player) {
+                    player.id = socket.id; // UPDATE THE SOCKET ID
+                    socket.join(r.id);
+                    reconnectedRoomId = r.id;
+                    if(r.active) {
+                        // Immediately send state so they aren't looking at menu
+                        socket.emit('gameStart', { roomId: r.id });
+                        broadcastGameState(r);
+                        if(r.winner) {
+                             socket.emit('victoryEvent', { winner: r.winner });
+                        }
+                    } else {
+                         socket.emit('waitingRoomUpdate', r);
+                    }
+                }
             });
+
+            if (!reconnectedRoomId) {
+                const { count } = await supabase.from('Hunters').select('*', { count: 'exact', head: true }).gt('hunterpoints', user.hunterpoints);
+                const exactRank = (count || 0) + 1;
+                const letter = getSimpleRank(user.hunterpoints);
+                
+                socket.emit('authSuccess', { 
+                    username: user.username, 
+                    mana: user.hunterpoints, 
+                    rank: getFullRankLabel(user.hunterpoints), 
+                    color: RANK_COLORS[letter],
+                    wins: user.wins || 0,
+                    losses: user.losses || 0,
+                    worldRank: exactRank,
+                    music: 'menu.mp3',
+                    isAdmin: isAdmin 
+                });
+            } else {
+                // We send auth success but minimal info since we are redirecting to game
+                socket.emit('authSuccess', { 
+                    username: user.username, 
+                    mana: user.hunterpoints, 
+                    isAdmin: isAdmin,
+                    music: null // Don't override game music
+                });
+            }
+            
             syncAllGates();
             broadcastWorldRankings(); 
         } else {
@@ -310,7 +343,7 @@ io.on('connection', (socket) => {
         // FIXED: Explicit Slot 0 assignment
         rooms[id] = {
             id, name: data.name, isOnline: true, active: false, turn: 0, globalTurns: 0, survivorTurns: 0,
-            respawnHappened: false,
+            respawnHappened: false, winner: null,
             players: [{ 
                 id: socket.id, 
                 name: data.host, 
@@ -339,7 +372,7 @@ io.on('connection', (socket) => {
             
             // FIXED: Get first available slot instead of length
             const slot = getAvailableSlot(room);
-            if(slot === -1) return; // Should not happen if length < 4
+            if(slot === -1) return; 
 
             const playerMana = Math.floor(Math.random() * 251) + 50;
             const wrData = await getWorldRankDisplay(data.user);
@@ -386,7 +419,7 @@ io.on('connection', (socket) => {
 
         rooms[id] = {
             id, active: true, turn: 0, isOnline: false, mode: data.diff, globalTurns: 0, survivorTurns: 0,
-            respawnHappened: false,
+            respawnHappened: false, winner: null,
             players: [
                 { id: socket.id, name: data.user, slot: 0, ...CORNERS[0], mana: playerMana, rankLabel: getFullRankLabel(playerMana), alive: true, isAI: false, color: PLAYER_COLORS[0], quit: false, powerUp: null, isAdmin: (data.user === ADMIN_NAME) },
                 { id: 'ai1', name: AI_NAMES[1], slot: 1, ...CORNERS[1], mana: 200, rankLabel: "Lower D-Rank", alive: true, isAI: true, color: PLAYER_COLORS[1], quit: false, powerUp: null },
@@ -419,26 +452,26 @@ io.on('connection', (socket) => {
     // CRITICAL FIX: Robust disconnection handling
     async function handleExit(s) {
         const username = Object.keys(connectedUsers).find(u => connectedUsers[u] === s.id);
-        if (username) delete connectedUsers[username];
+        // We do NOT delete connectedUsers immediately here to allow for quick refresh reconnection
         if (s.id === adminSocketId) adminSocketId = null;
 
         const room = Object.values(rooms).find(r => r.players.some(p => p.id === s.id));
         if (room) {
-            s.leave(room.id);
             const pIndex = room.players.findIndex(pl => pl.id === s.id);
             const p = room.players[pIndex];
             
             if (room.active) {
-                // Game IN PROGRESS
+                // Check if this is a refresh or a quit
+                // We'll give a 5 second grace period. If they don't reconnect via 'authRequest', we assume they are gone?
+                // Actually, for stability, if they explicitly called 'quitGame', we process it. 
+                // If it's 'disconnect', we DO NOT quit them immediately to allow reconnect.
+                // BUT, per your request "refresh means -20 HuP to the quitter", we treat disconnect as quit.
+                
                 if (p && !p.quit) {
                     p.quit = true; p.alive = false; 
-                    const { data: u } = await supabase.from('Hunters').select('hunterpoints, losses').eq('username', p.name).maybeSingle();
-                    if (u) await supabase.from('Hunters').update({ 
-                        hunterpoints: Math.max(0, u.hunterpoints - 20),
-                        losses: (u.losses || 0) + 1 
-                    }).eq('username', p.name);
+                    if(room.isOnline) await recordLoss(p.name, true); // True = Quit (-20)
                     
-                    io.to(room.id).emit('announcement', `${p.name} ABANDONED THE QUEST. -20 HuP & LOSS RECORDED.`);
+                    io.to(room.id).emit('announcement', `${p.name} DISCONNECTED. -20 HuP & LOSS RECORDED.`);
                     broadcastWorldRankings();
 
                     // CRITICAL FIX: If it was the quitter's turn, advance immediately!
@@ -453,14 +486,16 @@ io.on('connection', (socket) => {
                     await processWin(room, winner.name);
                 }
                 
-                if (!room.active) room.players = room.players.filter(pl => pl.id !== s.id);
-                if (room.players.length === 0 || room.players.every(pl => pl.isAI && !room.active)) {
+                // Cleanup ONLY if empty of humans
+                const anyHumansLeft = room.players.some(pl => !pl.quit && !pl.isAI);
+                if (!anyHumansLeft) {
                     delete rooms[room.id];
                 } else { 
                     broadcastGameState(room); 
                 }
             } else {
                 // WAITING ROOM: Totally remove player
+                s.leave(room.id);
                 room.players = room.players.filter(pl => pl.id !== s.id);
                 if (room.players.length === 0) {
                     delete rooms[room.id];
@@ -470,6 +505,9 @@ io.on('connection', (socket) => {
             }
             syncAllGates();
         }
+        
+        // Clean up user mapping after processing
+        if (username && connectedUsers[username] === s.id) delete connectedUsers[username];
     }
 
     socket.on('playerAction', async (data) => {
@@ -527,9 +565,10 @@ async function resolveConflict(room, p) {
             });
             await new Promise(r => setTimeout(r, 6000));
             
+            // Re-fetch in case of disconnects
             const currP = room.players.find(pl => pl.id === p.id);
             const currOp = room.players.find(pl => pl.id === opponent.id);
-            if(!currP || !currOp || !currP.alive || !currOp.alive) {
+            if(!currP || !currOp) {
                 io.to(room.id).emit('battleEnd');
                 return;
             }
@@ -558,7 +597,7 @@ async function resolveConflict(room, p) {
                     p.mana += opponent.mana; 
                     opponent.alive = false; 
                     if (!opponent.isAI && room.isOnline) {
-                        await recordLoss(opponent.name, p.mana); 
+                        await recordLoss(opponent.name, false); // False = Death (-5)
                         const loserSocket = io.sockets.sockets.get(opponent.id);
                         if(loserSocket) sendProfileUpdate(loserSocket, opponent.name);
                         broadcastWorldRankings();
@@ -567,7 +606,7 @@ async function resolveConflict(room, p) {
                     opponent.mana += p.mana; 
                     p.alive = false; 
                     if (!p.isAI && room.isOnline) {
-                        await recordLoss(p.name, opponent.mana); 
+                        await recordLoss(p.name, false); // False = Death (-5)
                         const loserSocket = io.sockets.sockets.get(p.id);
                         if(loserSocket) sendProfileUpdate(loserSocket, p.name);
                         broadcastWorldRankings();
@@ -628,7 +667,7 @@ async function resolveConflict(room, p) {
                 else { 
                     p.alive = false; 
                     if (!p.isAI && room.isOnline) {
-                        await recordLoss(p.name, gate.mana);
+                        await recordLoss(p.name, false); // False = Death (-5)
                         const loserSocket = io.sockets.sockets.get(p.id);
                         if(loserSocket) sendProfileUpdate(loserSocket, p.name);
                         broadcastWorldRankings();
@@ -693,11 +732,18 @@ function advanceTurn(room) {
     
     let attempts = 0;
     let nextIndex = room.turn;
+    
+    // SAFETY: Ensure index is within bounds before looping
+    if (nextIndex >= room.players.length) nextIndex = 0;
+
     do { 
         nextIndex = (nextIndex + 1) % room.players.length; 
         attempts++; 
     } while (!room.players[nextIndex].alive && attempts < room.players.length + 1);
     
+    // SAFETY: If we looped through everyone and found nobody, stop.
+    if (!room.players[nextIndex].alive) return;
+
     room.turn = nextIndex;
 
     const nextPlayer = room.players[room.turn];
@@ -730,7 +776,11 @@ function advanceTurn(room) {
     
     if (nextPlayer.isAI && nextPlayer.alive) {
         setTimeout(async () => {
-            if (!rooms[room.id] || !room.active || room.turn !== room.players.indexOf(nextPlayer)) return;
+            // Re-check validity inside timeout
+            if (!rooms[room.id] || !room.active) return;
+            const p = room.players[room.turn];
+            if(!p || p.id !== nextPlayer.id) return; // Turn changed or player invalid
+
             let tx = nextPlayer.x, ty = nextPlayer.y;
             
             if (room.mode === 'Monarch') {
