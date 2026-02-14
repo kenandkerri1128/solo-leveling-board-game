@@ -475,7 +475,6 @@
 
         socket.on('battleEnd', () => { document.getElementById('vs-panel').style.display = 'none'; });
 
-        // FIXED: Board guarding in state update to prevent post-victory loops
         socket.on('gameStateUpdate', (s) => {
             if (!s.active) return; // Guard: Ignore updates if game is inactive
             
