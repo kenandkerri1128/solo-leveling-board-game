@@ -432,7 +432,15 @@
         });
 
         function playerConfirm() { if(currentGateID) socket.emit('playerConfirm', { gateID: currentGateID }); }
-        function leaveWaitingRoom() { socket.emit('quitGame'); showScreen('screen-lobby'); socket.emit('requestGateList'); }
+        
+        // FIXED: Clear Gate ID on Leave to prevent Ghost Transport
+        function leaveWaitingRoom() { 
+            currentGateID = null;
+            socket.emit('quitGame'); 
+            showScreen('screen-lobby'); 
+            socket.emit('requestGateList'); 
+        }
+        
         function startAI(diff) { resetGameUI(); socket.emit('startSoloAI', { user: myHunter.username, diff }); }
 
         function resetGameUI() {
@@ -476,7 +484,10 @@
         socket.on('battleEnd', () => { document.getElementById('vs-panel').style.display = 'none'; });
 
         socket.on('gameStateUpdate', (s) => {
-            if (!s.active) return; // Guard: Ignore updates if game is inactive
+            if (!s.active) return; 
+
+            // FIXED: Self-repair UI if battle end signal was missed
+            document.getElementById('vs-panel').style.display = 'none';
             
             const board = document.getElementById('game-board');
             board.innerHTML = "";
