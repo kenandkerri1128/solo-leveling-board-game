@@ -187,7 +187,7 @@
 
         <div style="padding: 0 40px; display: flex; flex-direction: column; align-items: center;">
             <div id="game-board"></div>
-            <button id="btn-god-strength" class="sys-btn gold" style="display:none; width: 100%; margin-top: 10px; font-size: 0.9rem;" onclick="activateGodMode()">ACTIVATE GOD'S STRENGTH</button>
+            <button id="btn-powerup" class="sys-btn gold" style="display:none; width: 100%; margin-top: 10px; font-size: 0.9rem;" onclick="usePowerUp()">ACTIVATE RUNE</button>
         </div>
 
         <div class="hud-right">
@@ -236,6 +236,7 @@
         let myUser = null;
         let currentRoomId = 'global';
         let currentGateId = null;
+        let currentHunterPowerUp = null; // Track current inventory item
 
         // --- AUDIO ---
         const BGM = document.getElementById('bgm');
@@ -251,7 +252,6 @@
             document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
             document.getElementById(id).classList.add('active');
             
-            // Logic per screen
             if (id === 'screen-menu') {
                 playTrack('menu.mp3');
                 moveChatTo('chat-global-anchor', 'global');
@@ -262,7 +262,7 @@
                 moveChatTo('chat-waiting-anchor', currentGateId);
             } else if (id === 'screen-game') {
                 playTrack('gameplay.mp3');
-                moveChatTo('chat-game-anchor', currentGateId); // Use Gate ID for room
+                moveChatTo('chat-game-anchor', currentGateId);
             }
         }
 
@@ -288,12 +288,11 @@
 
         socket.on('authError', (msg) => {
             document.getElementById('auth-msg').innerText = msg;
-            if (msg.includes("FORCED")) { alert(msg); location.reload(); }
+            if (msg.includes("FORCED") || msg === "ALREADY LOGGED IN") { alert(msg); location.reload(); }
         });
 
         socket.on('authSuccess', (data) => {
             myUser = data;
-            // Update Profile UI
             document.getElementById('p-name').innerText = data.username;
             document.getElementById('p-name').className = data.isAdmin ? 'admin-glow' : '';
             document.getElementById('p-rank').innerText = data.rank;
@@ -301,9 +300,7 @@
             document.getElementById('p-mp').innerText = `HuP: ${data.mana}`;
             document.getElementById('p-stats').innerText = `W: ${data.wins} | L: ${data.losses}`;
             document.getElementById('p-wr').innerText = `WORLD RANK #${data.worldRank}`;
-            
             if (data.isAdmin) document.getElementById('admin-controls').style.display = 'flex';
-            
             showScreen('screen-menu');
         });
 
@@ -314,14 +311,9 @@
             chatElement = tpl.firstElementChild.cloneNode(true);
             const btn = chatElement.querySelector('button');
             const inp = chatElement.querySelector('input');
-            
             const send = () => {
                 if (inp.value.trim() && myUser) {
-                    socket.emit('sendMessage', { 
-                        senderName: myUser.username, 
-                        message: inp.value, 
-                        roomId: currentRoomId 
-                    });
+                    socket.emit('sendMessage', { senderName: myUser.username, message: inp.value, roomId: currentRoomId });
                     inp.value = '';
                 }
             };
@@ -335,7 +327,7 @@
             socket.emit('joinChatRoom', roomId);
             const anchor = document.getElementById(anchorId);
             const box = chatElement.querySelector('.chat-messages');
-            box.innerHTML = ''; // Clear old messages on room switch
+            box.innerHTML = '';
             anchor.appendChild(chatElement);
         }
 
@@ -350,7 +342,6 @@
             box.scrollTop = box.scrollHeight;
         });
 
-        // --- WORLD RANKING ---
         socket.on('updateWorldRankings', (list) => {
             const el = document.getElementById('world-rank-list');
             el.innerHTML = list.slice(0, 10).map((u, i) => `
@@ -361,18 +352,15 @@
             `).join('');
         });
 
-        // --- LOBBY & WAITING ROOM ---
         function createRoom() {
             const name = document.getElementById('room-name').value;
             if (name) socket.emit('createGate', { host: myUser.username, name });
         }
-        
         function goToLobby() { showScreen('screen-lobby'); }
         function logout() { location.reload(); }
 
         socket.on('updateGateList', (list) => {
             const el = document.getElementById('room-list');
-            el.innerHTML = ""; // Clear existing
             el.innerHTML = list.map(r => `
                 <div class="room-item" onclick="socket.emit('joinGate', {gateID: '${r.id}', user: myUser.username})">
                     <span>${r.name}</span>
@@ -383,11 +371,7 @@
 
         socket.on('waitingRoomUpdate', (room) => {
             currentGateId = room.id;
-            // If just joined/created, switch screen
-            if (!document.getElementById('screen-waiting').classList.contains('active')) {
-                showScreen('screen-waiting');
-            }
-            
+            if (!document.getElementById('screen-waiting').classList.contains('active')) showScreen('screen-waiting');
             document.getElementById('wr-title').innerText = `GATE: ${room.name}`;
             const el = document.getElementById('wr-players');
             el.innerHTML = room.players.map(p => `
@@ -397,7 +381,6 @@
                     <span style="color:${p.confirmed ? 'var(--sys-green)' : '#444'}">${p.confirmed ? 'READY' : 'WAITING'}</span>
                 </div>
             `).join('');
-            
             const me = room.players.find(p => p.id === socket.id);
             const btn = document.getElementById('btn-ready');
             if (me && me.confirmed) {
@@ -411,56 +394,44 @@
             }
         });
 
-        function sendConfirm() {
-            socket.emit('playerConfirm', { gateID: currentGateId });
-        }
+        function sendConfirm() { socket.emit('playerConfirm', { gateID: currentGateId }); }
+        function startMonarch() { transportAnimation(() => { socket.emit('startSoloAI', { user: myUser.username, mode: 'Monarch' }); }); }
 
-        // --- MONARCH MODE ---
-        function startMonarch() {
-            transportAnimation(() => {
-                socket.emit('startSoloAI', { user: myUser.username, mode: 'Monarch' });
-            });
-        }
-
-        // --- GAMEPLAY ---
         socket.on('gameStart', (data) => {
-            currentGateId = data.roomId; // Ensure room ID matches
-            transportAnimation(() => {
-                showScreen('screen-game');
-            });
+            currentGateId = data.roomId;
+            transportAnimation(() => { showScreen('screen-game'); });
         });
 
-        function activateGodMode() {
-            socket.emit('activatePowerUp', { type: "GOD'S STRENGTH" });
-            document.getElementById('btn-god-strength').style.display = 'none';
+        // --- POWER UP CORE ---
+        function usePowerUp() {
+            if (currentHunterPowerUp) {
+                socket.emit('activatePowerUp', { type: currentHunterPowerUp });
+                document.getElementById('btn-powerup').style.display = 'none';
+            }
         }
 
         socket.on('gameStateUpdate', (state) => {
-            // Render Board
             const board = document.getElementById('game-board');
             board.innerHTML = '';
-            
             const me = state.players.find(p => p.id === socket.id);
             const isMyTurn = state.players[state.turn].id === socket.id;
 
-            // Update Turn Text
             const turnP = state.players[state.turn];
             document.getElementById('turn-indicator').innerText = isMyTurn ? ">> YOUR TURN" : `>> ${turnP.name.toUpperCase()}'S TURN`;
             document.getElementById('turn-indicator').style.color = turnP.color;
 
-            // God's Strength Button Logic
-            if (me && me.alive && me.powerUp === "GOD'S STRENGTH") {
-                 document.getElementById('btn-god-strength').style.display = 'block';
+            // Power-Up logic
+            if (me && me.alive && me.powerUp) {
+                 const pBtn = document.getElementById('btn-powerup');
+                 pBtn.style.display = 'block';
+                 pBtn.innerText = `USE ${me.powerUp} RUNE`;
+                 currentHunterPowerUp = me.powerUp; 
             } else {
-                 document.getElementById('btn-god-strength').style.display = 'none';
+                 document.getElementById('btn-powerup').style.display = 'none';
             }
 
-            // Party List (Fog of War)
             document.getElementById('ingame-party').innerHTML = state.players.map(p => {
-                // Determine what mana to show. 
-                // If it's Me: Show number. If Enemy: The server sends the Rank String.
                 const manaDisplay = (p.id === socket.id) ? p.mana : p.displayRank;
-                
                 return `
                 <div style="padding: 5px; border-bottom: 1px solid #333; margin-bottom:5px; opacity:${p.alive?1:0.3};">
                     <div style="color:${p.color}; font-weight:900;">${p.isAdmin?'👑':''}${p.name}</div>
@@ -471,19 +442,15 @@
                 </div>`;
             }).join('');
 
-            // Grid
             for(let y=0; y<15; y++) {
                 for(let x=0; x<15; x++) {
                     const cell = document.createElement('div');
                     cell.className = 'cell';
                     const key = `${x}-${y}`;
-                    
                     if (state.world[key]) {
                         cell.style.backgroundColor = state.world[key].color;
                         if(state.world[key].rank === 'Silver') cell.style.boxShadow = "0 0 10px white";
                     }
-
-                    // Render Players
                     state.players.forEach(p => {
                         if (p.alive && p.x === x && p.y === y) {
                             cell.innerHTML = `
@@ -491,12 +458,9 @@
                                     <div class="name-tag" style="color:${p.color}">${p.isAdmin?'👑':''}${p.name}</div>
                                     <div class="h-head" style="border-color:${p.color}; box-shadow:0 0 5px ${p.color};"></div>
                                     <div class="h-body" style="border-color:${p.color}; box-shadow:0 0 5px ${p.color};"></div>
-                                </div>
-                            `;
+                                </div>`;
                         }
                     });
-
-                    // Movement Logic
                     if (isMyTurn && me && me.alive) {
                          const dist = Math.abs(me.x - x) + Math.abs(me.y - y);
                          const limit = me.stepLimit || 1;
@@ -510,7 +474,6 @@
             }
         });
 
-        // --- COMBAT & ANNOUNCEMENTS ---
         socket.on('announcement', (msg) => {
             const feed = document.getElementById('announcement-feed');
             const el = document.createElement('div');
@@ -527,38 +490,24 @@
                 <span style="color:${data.hunterColor}; font-weight:900;">${data.hunter}</span>
                 <br><span style="font-size:0.8rem; color:#666;">VS</span><br>
                 <span style="color:${data.targetColor}; font-weight:900;">${data.target}</span>
-                <div style="font-size:0.8rem; color:#aaa; margin-top:5px;">${data.targetRank}</div>
-            `;
-            // Reset Animation
+                <div style="font-size:0.8rem; color:#aaa; margin-top:5px;">${data.targetRank}</div>`;
             const bar = document.getElementById('vs-bar');
             bar.style.transition = 'none';
             bar.style.width = '0%';
-            setTimeout(() => {
-                bar.style.transition = 'width 5.8s linear';
-                bar.style.width = '100%';
-            }, 50);
+            setTimeout(() => { bar.style.transition = 'width 5.8s linear'; bar.style.width = '100%'; }, 50);
         });
 
-        socket.on('battleEnd', () => {
-            document.getElementById('vs-panel').style.display = 'none';
-        });
+        socket.on('battleEnd', () => { document.getElementById('vs-panel').style.display = 'none'; });
 
         socket.on('victoryEvent', (data) => {
             const scr = document.getElementById('victory-screen');
             scr.style.display = 'flex';
             document.getElementById('winner-name').innerText = data.winner;
-            
             const isMe = (myUser && myUser.username === data.winner);
             const pts = data.points || 0;
             const info = document.getElementById('reward-info');
-            
-            if (isMe) {
-                info.innerText = `REWARD: +${pts} HUNTER POINTS`;
-                info.style.color = 'var(--sys-green)';
-            } else {
-                info.innerText = `MISSION FAILED - MANA DEDUCTED`;
-                info.style.color = 'var(--sys-red)';
-            }
+            if (isMe) { info.innerText = `REWARD: +${pts} HUNTER POINTS`; info.style.color = 'var(--sys-green)'; }
+            else { info.innerText = `MISSION FAILED - MANA DEDUCTED`; info.style.color = 'var(--sys-red)'; }
         });
 
         socket.on('returnToProfile', () => {
@@ -566,12 +515,10 @@
             showScreen('screen-menu');
         });
 
-        // --- ADMIN ---
         function adminAction(type) {
             if (type === 'kick') socket.emit('adminAction', { action: 'kick', target: document.getElementById('adm-kick').value });
             if (type === 'broadcast') socket.emit('adminAction', { action: 'broadcast', message: document.getElementById('adm-bc').value });
         }
-
     </script>
 </body>
 </html>
