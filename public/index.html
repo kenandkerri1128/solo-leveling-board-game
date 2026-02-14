@@ -356,6 +356,7 @@
             document.getElementById('admin-panel').style.display = d.isAdmin ? 'flex' : 'none';
 
             const lastScreen = sessionStorage.getItem('last_screen');
+            // FIX: If we just reconnected to an active game, ignore last_screen preference
             if(lastScreen && !['screen-game', 'screen-waiting', 'screen-auth'].includes(lastScreen)) {
                 showScreen(lastScreen);
             } else {
@@ -486,7 +487,8 @@
         socket.on('gameStateUpdate', (s) => {
             if (!s.active) return; 
 
-            // FIXED: Self-repair UI if battle end signal was missed
+            // FIXED: Self-repair UI if battle end signal was missed. 
+            // If a state update comes in, any active visual battle is technically "old news" or will be re-triggered.
             document.getElementById('vs-panel').style.display = 'none';
             
             const board = document.getElementById('game-board');
@@ -574,7 +576,7 @@
             vs.style.display = 'flex';
             document.getElementById('winner-name').innerText = data.winner;
             document.getElementById('mp-deduction-info').innerText = (data.winner === myHunter.username) 
-                ? "VICTORY ACHIEVED" 
+                ? "VICTORY ACHIEVED: +20 HuP" 
                 : "DEFEAT: HuP DEDUCTED";
         });
     </script>
