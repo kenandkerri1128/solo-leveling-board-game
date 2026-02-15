@@ -40,7 +40,8 @@
         .party-member { font-size: 16px; font-weight: 900; margin-bottom: 8px; border-bottom: 1px solid #222; padding: 5px 0; }
         
         #vs-panel { display: none; background: rgba(20,0,0,0.9); border: 2px solid var(--sys-red); padding: 10px; margin-bottom: 15px; flex-direction: column; align-items: center; box-shadow: 0 0 15px var(--sys-red); width: 100%; box-sizing: border-box; }
-        .v-fill { height: 6px; background: var(--sys-red); width: 0%; transition: 5s linear; margin-top: 10px; }
+        /* CHANGED: Transition time increased to 6s to match server timeout */
+        .v-fill { height: 6px; background: var(--sys-red); width: 0%; transition: 6s linear; margin-top: 10px; }
         
         #turn-counter { margin-top: 10px; padding: 10px; border: 1px solid #333; font-size: 14px; text-align: center; color: var(--sys-gold); }
         #victory-screen { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.95); z-index: 10000; flex-direction: column; align-items: center; justify-content: center; text-align: center;}
@@ -467,7 +468,7 @@
             vsFill.style.transition = 'none';
             vsFill.style.width = '0%';
             void vsFill.offsetWidth; 
-            vsFill.style.transition = '5s linear';
+            vsFill.style.transition = '6s linear'; // CHANGED: 6s to match server timeout
             vsFill.style.width = '100%';
             const attackerColor = data.hunterColor || '#fff';
             const defenderColor = data.targetColor || '#fff';
@@ -538,7 +539,8 @@
                     const dist = Math.abs(observer.x - x) + Math.abs(observer.y - y);
                     
                     // INTERACTION FIX: Force cell clickability if turn and range match
-                    if(isMyTurn && dist <= (s.mode === 'Monarch' ? 3 : 2) && dist > 0) {
+                    // ADDED: Check 's.resolving' to prevent click during animation
+                    if(!s.resolving && isMyTurn && dist <= (s.mode === 'Monarch' ? 3 : 2) && dist > 0) {
                         cell.classList.add('valid-move');
                         cell.onclick = () => {
                             console.log(`System: Emitting move to ${x},${y}`);
@@ -569,7 +571,9 @@
         function quitAction() { socket.emit('quitGame'); }
         
         socket.on('returnToProfile', () => { resetGameUI(); showScreen('screen-menu'); });
-        socket.on('sysLog', (msg) => {
+        
+        // CRITICAL FIX: Changed listener from 'sysLog' to 'announcement' to match Server
+        socket.on('announcement', (msg) => {
             const board = document.getElementById('announcement-board');
             board.innerHTML = `<div>> ${msg}</div>` + board.innerHTML;
         });
