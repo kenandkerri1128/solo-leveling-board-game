@@ -247,6 +247,7 @@
         let currentBGM = "";
         let currentGateID = null;
         let currentHunterPowerUp = null;
+        let currentGameState = null; // Stores game state for Victory calculations
 
         const POWER_ICONS = { 'DOUBLE DAMAGE': '⚔️', 'GHOST WALK': '👣', 'NETHER SWAP': '🌀' };
 
@@ -271,7 +272,6 @@
                         document.getElementById('u').value = c.u;
                         document.getElementById('p').value = c.p;
                         currentPass = c.p;
-                        // Optimistic Set
                         myHunter = { username: c.u }; 
                         socket.emit('authRequest', { type: 'login', u: c.u, p: c.p });
                     }
@@ -304,7 +304,6 @@
             myHunter = d;
             sessionStorage.setItem('hunter_creds', JSON.stringify({u: d.username, p: currentPass}));
             
-            // Map data to new UI
             document.getElementById('p-name').innerText = d.username;
             document.getElementById('p-name').className = d.isAdmin ? 'admin-glow' : '';
             document.getElementById('p-rank').innerText = d.rank;
@@ -315,7 +314,6 @@
             
             if (d.isAdmin) document.getElementById('admin-controls').style.display = 'flex';
 
-            // Navigate
             const currentScreen = document.querySelector('.screen.active').id;
             if(currentScreen !== 'screen-game') {
                 const lastScreen = sessionStorage.getItem('last_screen');
@@ -329,7 +327,7 @@
             if(d.music) playTrack(d.music);
         });
 
-        // --- CHAT SYSTEM (Merged Logic) ---
+        // --- CHAT SYSTEM ---
         let chatElement = null;
         function initChat() {
             const tpl = document.getElementById('chat-template');
@@ -358,7 +356,7 @@
             socket.emit('joinChatRoom', roomId);
             const anchor = document.getElementById(anchorId);
             const box = chatElement.querySelector('.chat-messages');
-            box.innerHTML = ''; // Clear chat on move
+            box.innerHTML = ''; 
             anchor.appendChild(chatElement);
         }
 
@@ -366,17 +364,15 @@
             const box = chatElement.querySelector('.chat-messages');
             const line = document.createElement('div');
             if (data.isAdmin) line.classList.add('admin-msg');
-            
             line.innerHTML = `<span style="color:#aaa; font-size:0.7em;">[${data.timestamp}]</span> 
                               <span style="color:${data.isAdmin ? 'var(--sys-gold)' : 'var(--sys-blue)'}; font-weight:900;">
                                 ${data.isAdmin?'👑':''}${data.sender}
-                              </span>: 
-                              <span style="color:#fff;">${data.text}</span>`;
+                              </span>: <span style="color:#fff;">${data.text}</span>`;
             box.appendChild(line);
             box.scrollTop = box.scrollHeight;
         });
 
-        // --- NAVIGATION & SCREENS ---
+        // --- NAVIGATION ---
         function showScreen(id) {
             document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
             document.getElementById(id).classList.add('active');
@@ -408,7 +404,7 @@
             }, 1500);
         }
 
-        // --- LOGIC: MENU / LOBBY ---
+        // --- MENU / LOBBY LOGIC ---
         function renderRankings() {
             const el = document.getElementById('world-rank-list');
             el.innerHTML = currentWorldRankings.slice(0, 15).map((u, i) => `
@@ -446,7 +442,7 @@
             `).join('');
         });
 
-        // --- LOGIC: WAITING ROOM ---
+        // --- WAITING ROOM LOGIC ---
         socket.on('waitingRoomUpdate', (room) => {
             currentGateID = room.id;
             if (!document.getElementById('screen-waiting').classList.contains('active')) showScreen('screen-waiting');
@@ -483,11 +479,9 @@
             socket.emit('requestGateList'); 
         }
 
-        // --- LOGIC: GAME ---
+        // --- GAME LOGIC (REBUILT SIMPLE) ---
         function startAI(diff) {
-            transportAnimation(() => {
-                socket.emit('startSoloAI', { user: myHunter.username, diff });
-            });
+            transportAnimation(() => { socket.emit('startSoloAI', { user: myHunter.username, diff }); });
         }
 
         socket.on('gameStart', (data) => {
@@ -502,86 +496,84 @@
             showScreen('screen-menu');
         });
 
-        // --- GAME STATE & BOARD ---
+        // --- CORE GAME UPDATE ---
         socket.on('gameStateUpdate', (state) => {
-             if (!state.active) return;
-             
-             // Ensure correct ID mapping
-             let me = state.players.find(p => p.id === socket.id);
-             if (!me && myHunter) me = state.players.find(p => p.name === myHunter.username);
-             const observer = me || { x: -10, y: -10 };
+            if (!state.active) return;
+            currentGameState = state; // Save for Victory Screen
 
-             // Turn Indicator
-             const turnP = state.players[state.turn];
-             const isTurn = (me && (turnP.id === me.id || turnP.name === me.name));
-             const ind = document.getElementById('turn-indicator');
-             ind.innerText = isTurn ? ">> YOUR TURN" : `>> ${turnP.name.toUpperCase()}'S TURN`;
-             ind.style.color = turnP.color;
+            // 1. Identify "Me"
+            let me = state.players.find(p => p.id === socket.id);
+            if (!me && myHunter) me = state.players.find(p => p.name === myHunter.username);
+            
+            // 2. Turn Indicator
+            const turnPlayer = state.players[state.turn];
+            const isMyTurn = (me && me.id === turnPlayer.id && !state.processing); // Lock inputs if processing
+            const ind = document.getElementById('turn-indicator');
+            ind.innerText = isMyTurn ? ">> YOUR TURN" : `>> ${turnPlayer.name.toUpperCase()}'S TURN`;
+            ind.style.color = turnPlayer.color;
 
-             // Power Up Button
-             if (me && me.alive && me.powerUp) {
-                 const pBtn = document.getElementById('btn-powerup');
-                 pBtn.style.display = 'block';
-                 pBtn.innerText = `ACTIVATE ${me.powerUp}`;
-                 currentHunterPowerUp = me.powerUp; 
-             } else {
-                 document.getElementById('btn-powerup').style.display = 'none';
-             }
+            // 3. Power Up UI
+            if (me && me.alive && me.powerUp) {
+                const pBtn = document.getElementById('btn-powerup');
+                pBtn.style.display = 'block';
+                pBtn.innerText = `ACTIVATE ${me.powerUp}`;
+                currentHunterPowerUp = me.powerUp; 
+            } else {
+                document.getElementById('btn-powerup').style.display = 'none';
+            }
 
-             // Party List (Left HUD)
-             document.getElementById('ingame-party').innerHTML = state.players.map(p => {
+            // 4. Render Party (Left HUD)
+            document.getElementById('ingame-party').innerHTML = state.players.map(p => {
                 const manaDisplay = (p.id === socket.id || (myHunter && myHunter.isAdmin)) ? p.mana : p.displayRank;
-                const adminIcon = p.isAdmin ? '👑' : '';
                 return `
                 <div style="padding: 5px; border-bottom: 1px solid #333; margin-bottom:5px; opacity:${p.alive?1:0.3};">
-                    <div style="color:${p.color}; font-weight:900;">${adminIcon}${p.name} ${p.powerUp ? POWER_ICONS[p.powerUp]||'⭐' : ''}</div>
+                    <div style="color:${p.color}; font-weight:900;">${p.isAdmin?'👑':''}${p.name} ${p.powerUp ? POWER_ICONS[p.powerUp]||'⭐' : ''}</div>
                     <div style="display:flex; justify-content:space-between; font-size:0.8rem;">
                         <span>${p.worldRankLabel || ''}</span>
                         <span style="color:var(--sys-blue)">MP: ${manaDisplay}</span>
                     </div>
                 </div>`;
-             }).join('');
+            }).join('');
 
-             // Board Rendering
-             const board = document.getElementById('game-board');
-             board.innerHTML = '';
-             
-             for(let y=0; y<15; y++) {
+            // 5. Render Board
+            const board = document.getElementById('game-board');
+            board.innerHTML = '';
+            
+            for(let y=0; y<15; y++) {
                 for(let x=0; x<15; x++) {
                     const cell = document.createElement('div');
                     cell.className = 'cell';
                     const key = `${x}-${y}`;
                     
+                    // A. Render Gate
                     if (state.world[key]) {
                         cell.style.backgroundColor = state.world[key].color;
                         if(state.world[key].rank === 'Silver') cell.style.boxShadow = "0 0 10px white";
                     }
 
-                    // Render Players
-                    state.players.forEach(p => {
-                        if (p.alive && p.x === x && p.y === y) {
-                             cell.innerHTML = `
-                                <div class="humanoid">
-                                    <div class="name-tag" style="color:${p.color}">${p.isAdmin?'👑':''}${p.name}</div>
-                                    <div class="h-head" style="border-color:${p.color}; box-shadow:0 0 5px ${p.color};"></div>
-                                    <div class="h-body" style="border-color:${p.color}; box-shadow:0 0 5px ${p.color};"></div>
-                                </div>`;
-                        }
-                    });
+                    // B. Render Player
+                    const pAtCell = state.players.find(p => p.alive && p.x === x && p.y === y);
+                    if (pAtCell) {
+                         cell.innerHTML = `
+                            <div class="humanoid">
+                                <div class="name-tag" style="color:${pAtCell.color}">${pAtCell.isAdmin?'👑':''}${pAtCell.name}</div>
+                                <div class="h-head" style="border-color:${pAtCell.color}; box-shadow:0 0 5px ${pAtCell.color};"></div>
+                                <div class="h-body" style="border-color:${pAtCell.color}; box-shadow:0 0 5px ${pAtCell.color};"></div>
+                            </div>`;
+                    }
 
-                    // Valid Moves
-                    if (isTurn && me && me.alive) {
+                    // C. Render Valid Move (Only if My Turn + Alive + Not Processing)
+                    if (isMyTurn && me && me.alive) {
                          const dist = Math.abs(me.x - x) + Math.abs(me.y - y);
-                         const limit = (state.mode === 'Monarch') ? 3 : 1; // Simplified logic based on server
-                         // Simple check - server does actual validation
-                         if (dist > 0 && dist <= limit) {
+                         // Simple Client Side Check (Server validates again)
+                         if (dist === 1) {
                              cell.classList.add('valid-move');
                              cell.onclick = () => socket.emit('playerAction', { tx: x, ty: y });
                          }
                     }
                     board.appendChild(cell);
                 }
-             }
+            }
         });
 
         // --- BATTLE & EVENTS ---
@@ -596,7 +588,7 @@
             const bar = document.getElementById('vs-bar');
             bar.style.transition = 'none';
             bar.style.width = '0%';
-            setTimeout(() => { bar.style.transition = 'width 5.8s linear'; bar.style.width = '100%'; }, 50);
+            setTimeout(() => { bar.style.transition = 'width 4.8s linear'; bar.style.width = '100%'; }, 50);
         });
 
         socket.on('battleEnd', () => { document.getElementById('vs-panel').style.display = 'none'; });
@@ -621,13 +613,20 @@
             const scr = document.getElementById('victory-screen');
             scr.style.display = 'flex';
             document.getElementById('winner-name').innerText = data.winner;
+            
             const isMe = (myHunter && myHunter.username === data.winner);
             const info = document.getElementById('reward-info');
             
-            // FIXED LOGIC HERE:
-            const isOnline = currentGateID && currentGateID.startsWith('gate');
-            if (isMe) { info.innerText = `REWARD: +${isOnline?20:5} HUNTER POINTS`; info.style.color = 'var(--sys-green)'; }
-            else { info.innerText = `MISSION ENDED`; info.style.color = '#888'; }
+            // FIX: Use stored state to check if Online or Solo
+            const isOnline = currentGameState ? currentGameState.isOnline : false;
+
+            if (isMe) { 
+                info.innerText = `REWARD: +${isOnline?20:5} HUNTER POINTS`; 
+                info.style.color = 'var(--sys-green)'; 
+            } else { 
+                info.innerText = `MISSION ENDED`; 
+                info.style.color = '#888'; 
+            }
         });
 
         socket.on('sysLog', (msg) => alert(`ADMIN: ${msg}`));
