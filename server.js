@@ -46,11 +46,8 @@ async function dbUpdateHunter(username, points, isWin) {
         const { data: u } = await supabase.from('Hunters').select('hunterpoints, wins, losses').eq('username', username).maybeSingle();
         if(u) {
             const updates = { hunterpoints: Math.max(0, u.hunterpoints + points) };
-            // *** FIX: STRICT CHECK TO PREVENT FALSE LOSSES ON DEATH ***
             if(isWin === true) updates.wins = (u.wins || 0) + 1;
             else if(isWin === false) updates.losses = (u.losses || 0) + 1;
-            // If isWin is null, we only update points, not stats.
-            
             await supabase.from('Hunters').update(updates).eq('username', username);
         }
     } catch(e) {}
@@ -135,7 +132,6 @@ function syncAllGates() {
 // --- SOCKET LOGIC ---
 io.on('connection', (socket) => {
     
-    // 1. ADMIN ACTIONS
     socket.on('adminAction', (data) => {
         if (socket.id !== adminSocketId) return; 
         if (data.action === 'kick' && connectedUsers[data.target]) {
@@ -149,7 +145,6 @@ io.on('connection', (socket) => {
         }
     });
 
-    // 2. AUTHENTICATION
     socket.on('authRequest', async (data) => {
         if (connectedUsers[data.u]) {
             const old = io.sockets.sockets.get(connectedUsers[data.u]);
@@ -288,7 +283,6 @@ io.on('connection', (socket) => {
         startGame(rooms[id]);
     });
 
-    // 5. IN-GAME ACTIONS
     socket.on('activateSkill', (data) => {
         const r = Object.values(rooms).find(rm => rm.players.some(p => p.id === socket.id));
         if(r && r.processing) {
@@ -364,7 +358,7 @@ function processMove(room, player, tx, ty) {
 
 function resolveBattle(room, attacker, defender, isGate) {
     if(!room.active) return;
-    room.currentBattle = null;
+    room.currentBattle = null; 
     attacker.turnsWithoutBattle = 0;
     if(!isGate) defender.turnsWithoutBattle = 0;
 
@@ -398,14 +392,12 @@ function resolveBattle(room, attacker, defender, isGate) {
                 }
             } else {
                 defender.alive = false;
-                // *** FIX: PASS NULL SO STATS DONT UPDATE, ONLY POINTS (PENALTY) ***
-                if(!room.isOnline) dbUpdateHunter(defender.name, -1, null);
+                // *** FIX: REMOVED DB UPDATE ON DEATH (NO LOSS COUNTED) ***
             }
         } else {
             if(!isGate) defender.mana += attacker.mana;
             attacker.alive = false;
-            // *** FIX: PASS NULL SO STATS DONT UPDATE, ONLY POINTS (PENALTY) ***
-            if(!room.isOnline) dbUpdateHunter(attacker.name, -1, null);
+            // *** FIX: REMOVED DB UPDATE ON DEATH (NO LOSS COUNTED) ***
         }
     }
 
@@ -473,7 +465,6 @@ function handleWin(room, winnerName) {
     io.to(room.id).emit('victoryEvent', { winner: winnerName });
     room.active = false;
     dbUpdateHunter(winnerName, room.isOnline ? 20 : 5, true);
-    // Losers in online mode get a stat loss (false)
     if(room.isOnline) room.players.forEach(p => { if(p.name !== winnerName && !p.quit && !p.isAI) dbUpdateHunter(p.name, -5, false); });
     broadcastWorldRankings();
     setTimeout(() => { io.to(room.id).emit('returnToProfile'); delete rooms[room.id]; syncAllGates(); }, 6000);
@@ -498,7 +489,6 @@ function handleDisconnect(socket, isQuit) {
         const p = room.players.find(pl => pl.id === socket.id);
         if(isQuit) {
             p.quit = true; p.alive = false; 
-            // Quit = Loss stats (false)
             dbUpdateHunter(p.name, room.isOnline ? -20 : -1, false);
             socket.leave(room.id);
             socket.emit('returnToProfile'); 
@@ -528,9 +518,8 @@ function triggerRespawn(room, survivorId) {
             p.turnsWithoutBattle = 0;
             p.isStunned = false;
             teleport(p);
-
-            // *** FIX: Give bonus MP to everyone EXCEPT the winner. ***
-            // If survivorId is null (total wipeout), !survivorId is true, so everyone gets bonus.
+            
+            // *** FIX: BONUS MP FOR ALL DEAD (EXCEPT WINNER IF EXISTS) ***
             if (!survivorId || p.id !== survivorId) {
                  p.mana += Math.floor(Math.random() * 1001) + 500;
             }
@@ -585,7 +574,7 @@ function broadcastGameState(room) {
                 powerUp: (pl.id===p.id || pl.isAdmin) ? pl.powerUp : null,
                 displayRank: getDisplayRank(pl.mana)
             }));
-            socket.emit('gameStateUpdate', { ...room, players: sanitized, currentBattle: room.currentBattle }); 
+            socket.emit('gameStateUpdate', { ...room, players: sanitized, currentBattle: room.currentBattle }); // Send battle info
         }
     });
 }
