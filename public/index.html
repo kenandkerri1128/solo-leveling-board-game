@@ -623,7 +623,10 @@
             document.getElementById('winner-name').innerText = data.winner;
             const isMe = (myHunter && myHunter.username === data.winner);
             const info = document.getElementById('reward-info');
-            if (isMe) { info.innerText = `REWARD: +${state.isOnline?20:5} HUNTER POINTS`; info.style.color = 'var(--sys-green)'; }
+            
+            // FIXED LOGIC HERE:
+            const isOnline = currentGateID && currentGateID.startsWith('gate');
+            if (isMe) { info.innerText = `REWARD: +${isOnline?20:5} HUNTER POINTS`; info.style.color = 'var(--sys-green)'; }
             else { info.innerText = `MISSION ENDED`; info.style.color = '#888'; }
         });
 
