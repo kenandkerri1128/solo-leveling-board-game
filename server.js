@@ -216,7 +216,7 @@ io.on('connection', (socket) => {
                 id: socket.id, name: data.host, slot: 0, ...CORNERS[0], 
                 mana, rankLabel: getFullRankLabel(mana), worldRankLabel: wr.label, 
                 alive: true, confirmed: false, color: PLAYER_COLORS[0], isAI: false, quit: false, powerUp: null,
-                isAdmin: (data.host === ADMIN_NAME)
+                isAdmin: (data.host === ADMIN_NAME), turnsWithoutBattle: 0, isStunned: false
             }],
             world: {}
         };
@@ -237,7 +237,7 @@ io.on('connection', (socket) => {
                 id: socket.id, name: data.user, slot, ...CORNERS[slot],
                 mana, rankLabel: getFullRankLabel(mana), worldRankLabel: wr.label,
                 alive: true, confirmed: false, color: PLAYER_COLORS[slot], isAI: false, quit: false, powerUp: null,
-                isAdmin: (data.user === ADMIN_NAME)
+                isAdmin: (data.user === ADMIN_NAME), turnsWithoutBattle: 0, isStunned: false
             });
             socket.join(data.gateID);
             io.to(data.gateID).emit('waitingRoomUpdate', r);
@@ -267,10 +267,10 @@ io.on('connection', (socket) => {
             id, isOnline: false, active: false, processing: false, mode: data.diff,
             turn: 0, globalTurns: 0, survivorTurns: 0, respawnHappened: false,
             players: [
-                { id: socket.id, name: data.user, slot: 0, ...CORNERS[0], mana, rankLabel: getFullRankLabel(mana), alive: true, isAI: false, color: PLAYER_COLORS[0], quit: false, powerUp: null, isAdmin: (data.user === ADMIN_NAME) },
-                { id: 'ai1', name: AI_NAMES[1], slot: 1, ...CORNERS[1], mana: 200, rankLabel: "Lower D-Rank", alive: true, isAI: true, color: PLAYER_COLORS[1], quit: false, powerUp: null },
-                { id: 'ai2', name: AI_NAMES[2], slot: 2, ...CORNERS[2], mana: 233, rankLabel: "Higher D-Rank", alive: true, isAI: true, color: PLAYER_COLORS[2], quit: false, powerUp: null },
-                { id: 'ai3', name: AI_NAMES[3], slot: 3, ...CORNERS[3], mana: 200, rankLabel: "Lower D-Rank", alive: true, isAI: true, color: PLAYER_COLORS[3], quit: false, powerUp: null }
+                { id: socket.id, name: data.user, slot: 0, ...CORNERS[0], mana, rankLabel: getFullRankLabel(mana), alive: true, isAI: false, color: PLAYER_COLORS[0], quit: false, powerUp: null, isAdmin: (data.user === ADMIN_NAME), turnsWithoutBattle: 0, isStunned: false },
+                { id: 'ai1', name: AI_NAMES[1], slot: 1, ...CORNERS[1], mana: 200, rankLabel: "Lower D-Rank", alive: true, isAI: true, color: PLAYER_COLORS[1], quit: false, powerUp: null, turnsWithoutBattle: 0, isStunned: false },
+                { id: 'ai2', name: AI_NAMES[2], slot: 2, ...CORNERS[2], mana: 233, rankLabel: "Higher D-Rank", alive: true, isAI: true, color: PLAYER_COLORS[2], quit: false, powerUp: null, turnsWithoutBattle: 0, isStunned: false },
+                { id: 'ai3', name: AI_NAMES[3], slot: 3, ...CORNERS[3], mana: 200, rankLabel: "Lower D-Rank", alive: true, isAI: true, color: PLAYER_COLORS[3], quit: false, powerUp: null, turnsWithoutBattle: 0, isStunned: false }
             ],
             world: {}
         };
@@ -299,19 +299,17 @@ io.on('connection', (socket) => {
         if(!p || p.id !== socket.id) return; // NOT YOUR TURN
 
         // --- NEW MOVEMENT LOGIC ---
-        const dx = data.tx - p.x;
-        const dy = data.ty - p.y;
-        const absDx = Math.abs(dx);
-        const absDy = Math.abs(dy);
+        const dx = Math.abs(data.tx - p.x);
+        const dy = Math.abs(data.ty - p.y);
         
-        if (absDx === 0 && absDy === 0) return; // No move
+        if (dx === 0 && dy === 0) return; // No move
 
         // Diagonal Check: Must be exactly 1 tile
-        if (absDx > 0 && absDy > 0) {
-            if (absDx !== 1 || absDy !== 1) return;
+        if (dx > 0 && dy > 0) {
+            if (dx !== 1 || dy !== 1) return;
         } else {
             // Cardinal Check: Must be <= Rank Range
-            const dist = absDx + absDy;
+            const dist = dx + dy;
             if (dist > getMoveRange(p.mana)) return;
         }
 
@@ -384,6 +382,10 @@ function processMove(room, player, tx, ty) {
 function resolveBattle(room, attacker, defender, isGate) {
     if(!room.active) return; // Safety check
 
+    // RESET STUN COUNTERS ON BATTLE
+    attacker.turnsWithoutBattle = 0;
+    if(!isGate) defender.turnsWithoutBattle = 0;
+
     let attMana = attacker.mana;
     let defMana = defender.mana;
     let cancel = false;
@@ -392,7 +394,6 @@ function resolveBattle(room, attacker, defender, isGate) {
     // --- NETHER SWAP LOGIC (COMPLEX) ---
     // Swaps user with a random player, receives MP of loser, teleports.
     let userSwap = null;
-    let otherSwap = null;
 
     if (attacker.activeBuff === 'NETHER SWAP') userSwap = attacker;
     else if (!isGate && defender.activeBuff === 'NETHER SWAP') userSwap = defender;
@@ -470,11 +471,7 @@ function resolveBattle(room, attacker, defender, isGate) {
         if(!isGate) {
             if(defender.activeBuff === 'DOUBLE DAMAGE') defMana *= 2;
             if(defender.activeBuff === 'RULERS AUTHORITY') {
-                // Defender auto-wins if attacker attacks? Or effectively cancels damage?
-                // Let's say it makes them win defense.
-                // But Attacker usually wins ties. 
-                // Let's simply add huge mana to defender calculation.
-                defMana = 99999999; 
+                defMana = 99999999; // Essentially auto-win for defender
             }
             if(defender.activeBuff === 'GHOST WALK') {
                 cancel = true; teleport(defender); io.to(room.id).emit('announcement', `${defender.name} USED GHOST WALK!`);
@@ -541,6 +538,17 @@ function checkSilverMonarchCondition(room) {
 function finishTurn(room) {
     if(!room.active) return;
     room.processing = false; 
+    
+    // Apply AFK Counter to the player who just finished
+    const justPlayed = room.players[room.turn];
+    if(justPlayed && justPlayed.alive) {
+        justPlayed.turnsWithoutBattle++;
+        if(justPlayed.turnsWithoutBattle >= 10) {
+            justPlayed.isStunned = true;
+            io.to(room.id).emit('announcement', `${justPlayed.name} IS EXHAUSTED (STUNNED)!`);
+        }
+    }
+
     room.globalTurns++;
 
     // GATE SPAWNING (3-5 gates every 3 turns)
@@ -564,10 +572,25 @@ function finishTurn(room) {
 
     // Determine Next Turn
     let attempts = 0;
+    let validNext = false;
+    
     do {
         room.turn = (room.turn + 1) % room.players.length;
+        const nextP = room.players[room.turn];
+        
+        if (nextP.alive && !nextP.quit) {
+            // Check Stun Logic
+            if(nextP.isStunned) {
+                nextP.isStunned = false;
+                nextP.turnsWithoutBattle = 0; // Reset counter after penalty
+                io.to(room.id).emit('announcement', `${nextP.name} SKIPS TURN (RECOVERING).`);
+                // Continue loop to skip this player
+            } else {
+                validNext = true;
+            }
+        }
         attempts++;
-    } while((!room.players[room.turn].alive || room.players[room.turn].quit) && attempts < 10);
+    } while(!validNext && attempts < 10);
 
     // If everyone is dead or quit
     const activePlayers = room.players.filter(p => p.alive && !p.quit);
@@ -592,7 +615,7 @@ function runAIMove(room, ai) {
     let target = null;
     let minDist = 999;
     
-    // AI moves based on its rank range too? Assuming AI follows same rules
+    // AI moves based on its rank range too
     const range = getMoveRange(ai.mana);
 
     // Scan Gates
@@ -614,13 +637,10 @@ function runAIMove(room, ai) {
 
     let tx = ai.x, ty = ai.y;
     if(target) {
-        // AI Pathfinding (Simple step towards target)
-        // Since AI can move >1 steps now, we move towards target up to Range
+        // AI Pathfinding 
         const dx = target.x - ai.x;
         const dy = target.y - ai.y;
         
-        // Simple heuristic: Move X then Y
-        // We need to clamp total movement to 'range'
         let remaining = range;
         
         let moveX = 0;
@@ -682,7 +702,7 @@ function handleDisconnect(socket, isQuit) {
         const p = room.players.find(pl => pl.id === socket.id);
         if(isQuit) {
             p.quit = true; 
-            p.alive = false; // Treat as dead for turns
+            p.alive = false; 
             
             // Immediate Penalty (Only if Online PvP)
             if(room.isOnline) {
@@ -732,6 +752,10 @@ function triggerRespawn(room, survivorId) {
     room.players.forEach(p => {
         if(!p.quit) {
             p.alive = true;
+            // Reset Stun Counters
+            p.turnsWithoutBattle = 0;
+            p.isStunned = false;
+
             if(survivorId && p.id !== survivorId) {
                  // Defeated players respawn with bonus 500-1500 MP
                  p.mana += Math.floor(Math.random() * 1001) + 500;
