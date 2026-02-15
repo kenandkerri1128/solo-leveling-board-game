@@ -6,38 +6,108 @@
     <script src="/socket.io/socket.io.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Exo+2:ital,wght@1,900&family=Orbitron:wght@400;900&display=swap" rel="stylesheet">
     <style>
+        /* UPDATED COLOR PALETTE */
         :root { 
-            --sys-blue: #00d2ff; --sys-gold: #ffcc00; --sys-silver: #ffffff; 
-            --rank-s: #ff0000; --rank-a: #ff00ff; --rank-b: #ff9900; --rank-c: #ffff00; --rank-d: #99ff00; --rank-e: #00ff00; 
+            --sys-blue: #00d2ff; 
+            --sys-gold: #ffcc00; 
+            --sys-silver: #ffffff; 
+            
+            /* RANK COLORS */
+            --rank-s: #ff0000; /* Red */
+            --rank-a: #ff00ff; /* Pink */
+            --rank-b: #ff9900; /* Orange */
+            --rank-c: #ffff00; /* Yellow */
+            --rank-d: #99ff00; /* Yellow Green */
+            --rank-e: #00ff00; /* Green */
         }
+
         body { background: #000; color: white; font-family: 'Exo 2', sans-serif; margin: 0; overflow: hidden; user-select: none; }
         h1, h2, h3 { font-family: 'Orbitron'; font-style: italic; color: var(--sys-blue); text-shadow: 0 0 10px var(--sys-blue); margin: 5px 0; }
+        
+        /* Layouts */
         .screen { display: none; flex-direction: column; align-items: center; justify-content: center; height: 100vh; width: 100vw; position: absolute; inset: 0; background: #000; z-index: 10; }
         .active { display: flex !important; }
+        
+        /* UI Elements */
         .sys-btn { background: #000; border: 2px solid var(--sys-blue); color: var(--sys-blue); padding: 12px 30px; font-family: 'Orbitron'; cursor: pointer; margin: 8px; font-weight: 900; clip-path: polygon(10% 0, 100% 0, 90% 100%, 0 100%); width: 260px; text-transform: uppercase; transition: 0.2s; letter-spacing: 2px; }
         .sys-btn:hover { background: var(--sys-blue); color: #000; box-shadow: 0 0 15px var(--sys-blue); }
+        .sys-btn:disabled { opacity: 0.5; cursor: not-allowed; }
         .sys-btn.danger { border-color: var(--rank-s); color: var(--rank-s); }
+        .sys-btn.danger:hover { background: var(--rank-s); color: #000; box-shadow: 0 0 15px var(--rank-s); }
         .sys-btn.gold { border-color: var(--sys-gold); color: var(--sys-gold); }
+        .sys-btn.gold:hover { background: var(--sys-gold); color: #000; }
+
         .sys-input { padding: 15px; background: rgba(0,0,0,0.8); border: 1px solid var(--sys-blue); color: #fff; width: 300px; margin: 10px; font-family: 'Orbitron'; outline: none; text-align: center; font-size: 1.1rem; }
-        #game-board { display: grid; grid-template-columns: repeat(15, 42px); gap: 2px; background: #111; border: 4px solid var(--sys-blue); }
-        .cell { width: 42px; height: 42px; background: #050505; position: relative; border: 0.5px solid #1a1a1a; }
-        .valid-move { box-shadow: inset 0 0 0 2px var(--sys-blue); cursor: pointer; background: rgba(0, 210, 255, 0.1); }
-        .silver-monarch { box-shadow: 0 0 15px white, inset 0 0 10px white !important; animation: pulse-silver 1.5s infinite alternate; }
+        .sys-input::placeholder { color: #444; }
+
+        /* Auth Screen */
+        #screen-auth { background: radial-gradient(circle at center, #111 0%, #000 100%); }
+        #auth-msg { color: var(--rank-s); font-family: 'Orbitron'; height: 20px; font-size: 0.9rem; margin-bottom: 10px; text-shadow: 0 0 5px var(--rank-s); }
+
+        /* Profile & Menu */
+        .profile-container { display: flex; width: 90vw; height: 85vh; gap: 20px; }
+        .menu-section { border: 1px solid #222; background: rgba(10,10,10,0.8); padding: 20px; display: flex; flex-direction: column; }
+        
+        /* Game Board */
+        #game-board { display: grid; grid-template-columns: repeat(15, 42px); gap: 2px; background: #111; border: 4px solid var(--sys-blue); box-shadow: 0 0 20px rgba(0, 210, 255, 0.2); }
+        .cell { width: 42px; height: 42px; background: #050505; position: relative; border: 0.5px solid #1a1a1a; transition: background 0.2s; }
+        .valid-move { box-shadow: inset 0 0 0 2px var(--sys-blue); cursor: pointer; background: rgba(0, 210, 255, 0.1); z-index: 5; }
+        .valid-move:hover { background: rgba(0, 210, 255, 0.3); }
+
+        /* Silver Monarch Special Visual */
+        .silver-monarch { 
+            box-shadow: 0 0 15px white, inset 0 0 10px white !important; 
+            animation: pulse-silver 1.5s infinite alternate; 
+            z-index: 2;
+        }
+        @keyframes pulse-silver { 
+            0% { box-shadow: 0 0 10px white, inset 0 0 5px white; } 
+            100% { box-shadow: 0 0 25px white, inset 0 0 15px white; } 
+        }
+
+        /* Characters */
         .humanoid { position: absolute; bottom: 5px; left: 50%; transform: translateX(-50%); width: 24px; height: 30px; pointer-events: none; z-index: 10; }
-        .name-tag { position: absolute; top: -25px; left: 50%; transform: translateX(-50%); font-size: 9px; white-space: nowrap; font-weight: 900; background: rgba(0,0,0,0.9); border: 1px solid #444; padding: 2px 4px; display: flex; flex-direction: column; align-items: center; }
+        .h-head { width: 10px; height: 10px; border-radius: 50%; border: 1.5px solid white; margin: 0 auto; box-shadow: 0 0 5px currentColor; }
+        .h-body { width: 20px; height: 15px; border: 1.5px solid white; border-radius: 4px 4px 0 0; margin-top: 1px; box-shadow: 0 0 5px currentColor; }
+        .name-tag { position: absolute; top: -25px; left: 50%; transform: translateX(-50%); font-size: 9px; white-space: nowrap; font-weight: 900; background: rgba(0,0,0,0.9); border: 1px solid #444; padding: 2px 4px; display: flex; flex-direction: column; align-items: center; z-index: 20; text-shadow: none; }
+
+        /* Chat System */
         .chat-container { display: flex; flex-direction: column; background: rgba(0,0,0,0.6); border: 1px solid #333; flex-grow: 1; min-height: 0; }
-        .chat-messages { flex-grow: 1; overflow-y: auto; padding: 10px; font-size: 0.8rem; }
+        .chat-messages { flex-grow: 1; overflow-y: auto; padding: 10px; font-size: 0.8rem; font-family: 'Exo 2'; scrollbar-width: thin; }
+        .chat-messages div { margin-bottom: 4px; line-height: 1.4; }
         .chat-input-area { display: flex; border-top: 1px solid #333; }
-        .chat-input-area input { flex-grow: 1; background: transparent; border: none; color: white; padding: 10px; outline: none; }
-        .chat-input-area button { background: #222; color: var(--sys-blue); border: none; padding: 0 20px; cursor: pointer; }
+        .chat-input-area input { flex-grow: 1; background: transparent; border: none; color: white; padding: 10px; outline: none; font-family: 'Exo 2'; }
+        .chat-input-area button { background: #222; color: var(--sys-blue); border: none; padding: 0 20px; cursor: pointer; font-weight: 900; }
+        .chat-input-area button:hover { background: var(--sys-blue); color: black; }
+
+        /* Admin & Special Styles */
+        .admin-glow { color: var(--sys-gold) !important; text-shadow: 0 0 10px var(--sys-gold); }
+        .admin-msg { border-left: 2px solid var(--sys-gold); padding-left: 5px; background: rgba(255, 204, 0, 0.05); }
+
+        /* VS Screen */
         #vs-panel { display: none; background: rgba(10,0,0,0.95); border: 2px solid var(--rank-s); padding: 15px; margin-bottom: 10px; flex-direction: column; align-items: center; box-shadow: 0 0 20px var(--rank-s); }
-        .v-fill { height: 8px; background: var(--rank-s); width: 0%; margin-top: 10px; }
+        .v-fill { height: 8px; background: var(--rank-s); width: 0%; margin-top: 10px; box-shadow: 0 0 10px var(--rank-s); }
+
+        /* Rank Guide */
         .rank-table { width: 100%; font-size: 0.75rem; border-collapse: collapse; color: #888; margin-top: auto; }
-        #transition-overlay { position: fixed; inset: 0; background: #000; z-index: 9999; display: none; align-items: center; justify-content: center; flex-direction: column; opacity: 0; transition: opacity 0.5s; }
-        .loader-ring { width: 100px; height: 100px; border: 5px solid #111; border-top: 5px solid var(--sys-blue); border-radius: 50%; animation: spin 1s linear infinite; }
+        .rank-table td { border-bottom: 1px solid #222; padding: 3px; }
+
+        /* Animation Overlay */
+        #transition-overlay { position: fixed; inset: 0; background: #000; z-index: 9999; display: none; align-items: center; justify-content: center; flex-direction: column; pointer-events: none; opacity: 0; transition: opacity 0.5s; }
+        .loader-ring { width: 100px; height: 100px; border: 5px solid #111; border-top: 5px solid var(--sys-blue); border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 20px; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        @keyframes pulse-silver { 0% { box-shadow: 0 0 10px white; } 100% { box-shadow: 0 0 25px white; } }
-        .hud-left, .hud-right { width: 300px; display: flex; flex-direction: column; height: 600px; padding: 0 20px; }
+        @keyframes pulse { from { transform: scale(1); filter: brightness(1); } to { transform: scale(1.05); filter: brightness(1.3); } }
+
+        /* Gate List */
+        .room-item { padding: 15px; border: 1px solid #333; margin-bottom: 5px; background: rgba(0,210,255,0.05); cursor: pointer; display: flex; justify-content: space-between; align-items: center; transition: 0.2s; }
+        .room-item:hover { background: rgba(0,210,255,0.2); border-color: var(--sys-blue); }
+
+        /* Victory */
+        #victory-screen { background: rgba(0,0,0,0.98); z-index: 10000; }
+        
+        /* HUD Specifics */
+        .hud-left { width: 300px; display: flex; flex-direction: column; height: 600px; border-right: 1px solid #333; padding-right: 20px; }
+        .hud-right { width: 300px; display: flex; flex-direction: column; height: 600px; border-left: 1px solid #333; padding-left: 20px; }
     </style>
 </head>
 <body>
@@ -46,239 +116,614 @@
 
     <div id="transition-overlay">
         <div class="loader-ring"></div>
-        <h2 style="letter-spacing: 5px;">GATE TRANSFER...</h2>
+        <h2 style="letter-spacing: 5px; animation: pulse 1s infinite;">INITIATING GATE TRANSFER...</h2>
     </div>
 
     <div id="victory-screen" class="screen">
-        <h1 style="font-size: 5rem; color: var(--sys-gold);">QUEST COMPLETE</h1>
-        <h2 id="winner-name">---</h2>
-        <div id="reward-info" style="font-size: 1.5rem; margin: 20px 0;"></div>
-        <div>RETURNING IN 5 SECONDS...</div>
+        <h1 style="font-size: 5rem; color: var(--sys-gold); text-shadow: 0 0 30px var(--sys-gold);">QUEST COMPLETE</h1>
+        <h2 id="winner-name" style="font-size: 3rem;">---</h2>
+        <div id="reward-info" style="font-size: 1.5rem; margin: 20px 0; font-family: 'Orbitron';"></div>
+        <div style="color: var(--sys-blue);">RETURNING TO SYSTEM IN 5 SECONDS...</div>
     </div>
 
     <div id="screen-auth" class="screen active">
-        <h1>HUNTER SYSTEM</h1>
+        <h1 style="font-size: 4rem; letter-spacing: 10px; margin-bottom: 40px;">HUNTER SYSTEM</h1>
         <div id="auth-msg"></div>
-        <input type="text" id="u" class="sys-input" placeholder="NAME">
-        <input type="password" id="p" class="sys-input" placeholder="KEY">
-        <div style="display:flex; gap:10px;">
+        <input type="text" id="u" class="sys-input" placeholder="HUNTER NAME">
+        <input type="password" id="p" class="sys-input" placeholder="ACCESS KEY">
+        <div style="display:flex; gap:10px; margin-top:20px;">
             <button class="sys-btn" onclick="auth('login')">LOGIN</button>
-            <button class="sys-btn" onclick="auth('signup')">REGISTER</button>
+            <button class="sys-btn" style="border-color:#444; color:#aaa;" onclick="auth('signup')">REGISTER</button>
         </div>
     </div>
 
     <div id="screen-menu" class="screen">
         <div class="profile-container">
-            <div class="menu-section" style="flex: 2;">
+            <div class="menu-section" style="flex: 2; align-items: center;">
                 <h3>WORLD RANKING</h3>
-                <div id="world-rank-list" style="overflow-y: auto; flex-grow: 1;"></div>
-                <div style="height: 250px; display: flex; flex-direction: column;">
-                    <div style="background: var(--sys-blue); color:black; padding: 5px;">GLOBAL</div>
+                <div id="world-rank-list" style="width: 100%; overflow-y: auto; flex-grow: 1; border-top: 2px solid var(--sys-blue); margin-top: 10px;"></div>
+                
+                <div style="width: 100%; height: 250px; display: flex; flex-direction: column; margin-top: 20px;">
+                    <div style="background: var(--sys-blue); color:black; padding: 5px; font-weight: 900; font-size: 0.8rem;">GLOBAL FREQUENCY</div>
                     <div id="chat-global-anchor" style="flex-grow: 1; position: relative;"></div>
                 </div>
             </div>
-            <div class="menu-section" style="flex: 1; align-items: flex-end;">
-                <h1 id="p-name">---</h1>
-                <div id="p-wr" style="color: var(--sys-gold);">RANK #--</div>
-                <div id="p-rank">---</div>
-                <div id="p-stats">W: 0 | L: 0</div>
-                <div id="p-mp">HuP: ---</div>
+
+            <div class="menu-section" style="flex: 1; align-items: flex-end; text-align: right;">
+                <h1 id="p-name" style="font-size: 2.5rem;">---</h1>
+                <div id="p-wr" style="color: var(--sys-gold); font-weight: 900; font-size: 1.2rem;">WORLD RANK #--</div>
+                <div id="p-rank" style="font-size: 1.5rem; margin: 10px 0;">---</div>
+                <div id="p-stats" style="color: #888; font-size: 0.9rem;">W: 0 | L: 0</div>
+                <div id="p-mp" style="color: var(--sys-blue); font-size: 1.2rem; margin-bottom: 30px;">HuP: ---</div>
+
+                <div id="admin-controls" style="display:none; flex-direction:column; gap:5px; margin-bottom: 20px; width: 100%;">
+                    <input id="adm-kick" class="sys-input" style="width:100%; padding: 5px; font-size: 0.8rem;" placeholder="Kick Username">
+                    <button class="sys-btn danger" style="width:100%; padding: 5px;" onclick="doAdmin('kick')">KICK</button>
+                    <input id="adm-bc" class="sys-input" style="width:100%; padding: 5px; font-size: 0.8rem;" placeholder="Broadcast">
+                    <button class="sys-btn gold" style="width:100%; padding: 5px;" onclick="doAdmin('broadcast')">BROADCAST</button>
+                </div>
+
                 <div style="margin-top: auto; display: flex; flex-direction: column; gap: 10px; width: 100%;">
-                    <button class="sys-btn gold" onclick="startAI('Monarch')">MONARCH MODE (+5)</button>
-                    <button class="sys-btn" style="border-color:var(--sys-blue); color:var(--sys-blue)" onclick="window.open('/guide.html', '_blank')">SYSTEM GUIDE</button>
-                    <button class="sys-btn" onclick="openOnlineLobby()">MULTIPLAYER</button>
-                    <button class="sys-btn danger" onclick="doLogout()">LOGOUT</button>
+                    <button class="sys-btn gold" style="width: 100%;" onclick="startAI('Monarch')">MONARCH MODE (+5)</button>
+                    
+                    <button class="sys-btn" style="width: 100%; border-color:var(--sys-blue); color:var(--sys-blue);" onclick="window.open('/guide.html', '_blank')">SYSTEM GUIDE</button>
+                    
+                    <button class="sys-btn" style="width: 100%;" onclick="openOnlineLobby()">MULTIPLAYER</button>
+                    <button class="sys-btn danger" style="width: 100%; border-color:#444; color:#666;" onclick="doLogout()">LOGOUT</button>
                 </div>
             </div>
         </div>
     </div>
 
     <div id="screen-lobby" class="screen">
-        <div id="room-list" style="width: 80%; flex-grow: 1;"></div>
-        <button class="sys-btn" onclick="showScreen('screen-menu')">BACK</button>
+        <h2 style="margin-bottom: 30px;">CONNECTION DECK</h2>
+        <div style="display:flex; width: 80vw; height: 70vh; gap: 20px;">
+            <div style="flex: 2; border: 1px solid var(--sys-blue); padding: 20px; display: flex; flex-direction: column;">
+                <div style="display:flex; gap: 10px; margin-bottom: 10px;">
+                    <input id="room-name" class="sys-input" style="margin:0; flex-grow:1;" placeholder="NEW ROOM NAME">
+                    <button class="sys-btn" style="width: auto; margin:0;" onclick="createGate()">CREATE ROOM</button>
+                </div>
+                <div id="room-list" style="flex-grow: 1; overflow-y: auto;"></div>
+            </div>
+            <div style="flex: 1; display: flex; flex-direction: column;">
+                <div style="background: #222; padding: 5px; text-align: center; font-weight: 900;">LOBBY CHAT</div>
+                <div id="chat-lobby-anchor" style="flex-grow: 1; position: relative;"></div>
+                <button class="sys-btn" style="width: 100%; margin: 10px 0 0 0;" onclick="showScreen('screen-menu')">BACK TO PROFILE</button>
+            </div>
+        </div>
     </div>
 
     <div id="screen-waiting" class="screen">
-        <h2 id="wr-title">---</h2>
-        <div id="wr-players" style="width: 50%;"></div>
-        <button id="btn-ready" class="sys-btn gold" onclick="playerConfirm()">READY</button>
-        <button class="sys-btn danger" onclick="leaveWaitingRoom()">LEAVE</button>
+        <h2 id="wr-title" style="font-size: 3rem; margin-bottom: 40px;">GATE: ---</h2>
+        <div style="display:flex; gap: 30px; height: 50vh; width: 70vw;">
+            <div id="wr-players" style="flex: 1; border: 1px solid var(--sys-blue); padding: 20px;"></div>
+            <div style="flex: 1; display: flex; flex-direction: column;">
+                 <div style="background: #222; padding: 5px; text-align: center;">TEAM COMMS</div>
+                 <div id="chat-waiting-anchor" style="flex-grow: 1; position: relative;"></div>
+            </div>
+        </div>
+        <div style="display: flex; gap: 20px; margin-top: 30px;">
+            <button id="btn-ready" class="sys-btn gold" onclick="playerConfirm()">READY</button>
+            <button class="sys-btn danger" onclick="leaveWaitingRoom()">LEAVE ROOM</button>
+        </div>
     </div>
 
-    <div id="screen-game" class="screen" style="flex-direction: row;">
+    <div id="screen-game" class="screen" style="flex-direction: row; justify-content: center; align-items: center;">
         <div class="hud-left">
-            <h3 id="turn-indicator">---</h3>
-            <div id="ingame-party"></div>
-            <div id="chat-game-anchor" style="flex-grow: 1; position: relative;"></div>
+            <h3 id="turn-indicator" style="color:var(--sys-gold); border-bottom: 1px solid #333; padding-bottom: 10px;">INITIALIZING...</h3>
+            <div id="ingame-party" style="margin-bottom: 20px;"></div>
+            
+            <div style="flex-grow: 1; display: flex; flex-direction: column; min-height: 200px;">
+                <div style="background: #111; padding: 5px; font-size: 0.8rem; color: #666;">SQUAD COMMS</div>
+                <div id="chat-game-anchor" style="flex-grow: 1; position: relative;"></div>
+            </div>
         </div>
-        <div style="display: flex; flex-direction: column; align-items: center;">
+
+        <div style="padding: 0 40px; display: flex; flex-direction: column; align-items: center;">
             <div id="game-board"></div>
         </div>
+
         <div class="hud-right">
             <div id="vs-panel">
-                <div style="color: var(--rank-s);">COMBAT</div>
-                <div id="vs-content"></div>
-                <button id="btn-powerup" class="sys-btn gold" style="display:none; width: 100%; margin: 5px 0;" onclick="usePowerUp()">ACTIVATE RUNE</button>
+                <div style="font-size: 1.2rem; color: var(--rank-s); font-weight: 900; letter-spacing: 2px;">COMBAT</div>
+                <div id="vs-content" style="text-align: center; margin: 10px 0; font-size: 1.1rem;"></div>
+                
+                <button id="btn-powerup" class="sys-btn gold" style="display:none; width: 100%; margin: 5px 0; font-size: 0.8rem;" onclick="usePowerUp()">ACTIVATE RUNE</button>
+                
                 <div style="width: 100%; background: #222; height: 8px;"><div class="v-fill" id="vs-bar"></div></div>
             </div>
-            <div id="announcement-feed" style="height: 150px; overflow-y: auto;"></div>
+
+            <div style="background: #050505; border: 1px solid #222; height: 150px; padding: 10px; overflow-y: auto; margin-bottom: 20px;">
+                <div id="announcement-feed" style="font-size: 0.75rem; color: #aaa;"></div>
+            </div>
+
+            <div class="rank-guide-title" style="border-bottom: 1px solid #333; margin-bottom: 5px; font-weight:900;">MP RANKING DATA</div>
             <table class="rank-table">
-                <tr><td style="color:var(--rank-s)">Rank S</td><td>901+</td></tr>
-                <tr><td style="color:var(--rank-a)">Rank A</td><td>701-900</td></tr>
-                <tr><td style="color:var(--rank-b)">Rank B</td><td>501-700</td></tr>
-                <tr><td style="color:var(--rank-c)">Rank C</td><td>301-500</td></tr>
-                <tr><td style="color:var(--rank-d)">Rank D</td><td>101-300</td></tr>
-                <tr><td style="color:var(--rank-e)">Rank E</td><td>0-100</td></tr>
+                <tr><td style="color:var(--rank-s)">Higher S</td><td>1000+</td></tr>
+                <tr><td style="color:var(--rank-s)">Lower S</td><td>901-999</td></tr>
+                <tr><td style="color:var(--rank-a)">Higher A</td><td>801-900</td></tr>
+                <tr><td style="color:var(--rank-a)">Lower A</td><td>701-800</td></tr>
+                <tr><td style="color:var(--rank-b)">Higher B</td><td>601-700</td></tr>
+                <tr><td style="color:var(--rank-b)">Lower B</td><td>501-600</td></tr>
+                <tr><td style="color:var(--rank-c)">Higher C</td><td>401-500</td></tr>
+                <tr><td style="color:var(--rank-c)">Lower C</td><td>301-400</td></tr>
+                <tr><td style="color:var(--rank-d)">Higher D</td><td>201-300</td></tr>
+                <tr><td style="color:var(--rank-d)">Lower D</td><td>101-200</td></tr>
+                <tr><td style="color:var(--rank-e)">Higher E</td><td>51-100</td></tr>
+                <tr><td style="color:var(--rank-e)">Lower E</td><td>0-50</td></tr>
             </table>
-            <button class="sys-btn danger" onclick="quitAction()">QUIT</button>
+
+            <button class="sys-btn danger" style="width: 100%; margin-top: 15px;" onclick="quitAction()">QUIT QUEST</button>
         </div>
     </div>
 
     <div id="chat-template" style="display:none;">
         <div class="chat-container">
             <div class="chat-messages"></div>
-            <div class="chat-input-area"><input type="text"><button>SEND</button></div>
+            <div class="chat-input-area">
+                <input type="text" placeholder="TRANSMIT...">
+                <button>SEND</button>
+            </div>
         </div>
     </div>
 
     <script>
         const socket = io();
-        let myHunter = null; let myRoomID = 'global'; let currentPass = ""; let currentGateID = null; let currentGameState = null; let currentHunterPowerUp = null;
-        const POWER_ICONS = { 'DOUBLE DAMAGE': '⚔️', 'GHOST WALK': '👣', 'NETHER SWAP': '🌀', 'RULERS AUTHORITY': '👑' };
-        const BGM = document.getElementById('bgm');
-        function playTrack(n) { if(n && BGM.src.indexOf(n) === -1) { BGM.src=`/music/${n}`; BGM.play().catch(()=>{}); } }
+        let myHunter = null;
+        let myRoomID = 'global';
+        let currentPass = "";
+        let currentWorldRankings = [];
+        let currentBGM = "";
+        let currentGateID = null;
+        let currentHunterPowerUp = null;
+        let currentGameState = null; // Stores game state for Victory calculations
 
-        window.onload = () => {
-            const s = sessionStorage.getItem('hunter_creds');
-            if(s) { const c=JSON.parse(s); auth('login', c.u, c.p); }
+        const POWER_ICONS = { 
+            'DOUBLE DAMAGE': '⚔️', 
+            'GHOST WALK': '👣', 
+            'NETHER SWAP': '🌀',
+            'RULERS AUTHORITY': '👑' 
         };
 
-        function auth(t, uIn, pIn) {
-            const u = uIn || document.getElementById('u').value; const p = pIn || document.getElementById('p').value;
-            if(!u || !p) return; currentPass = p; myHunter = { username: u }; socket.emit('authRequest', { type: t, u, p });
+        // --- AUDIO ---
+        const BGM = document.getElementById('bgm');
+        function playTrack(name) {
+            if(!name) return; 
+            if (currentBGM !== name) {
+                currentBGM = name;
+                BGM.src = `/music/${name}`;
+                BGM.play().catch(()=>{});
+            }
         }
 
+        // --- INIT & AUTH ---
+        window.onload = function() {
+            const stored = sessionStorage.getItem('hunter_creds');
+            if(stored) {
+                try {
+                    const c = JSON.parse(stored);
+                    if(c.u && c.p) {
+                        document.getElementById('u').value = c.u;
+                        document.getElementById('p').value = c.p;
+                        currentPass = c.p;
+                        myHunter = { username: c.u }; 
+                        socket.emit('authRequest', { type: 'login', u: c.u, p: c.p });
+                    }
+                } catch(e) {}
+            }
+        };
+
+        function doLogout() {
+            currentGateID = null; // FORCE CLEAR
+            sessionStorage.removeItem('hunter_creds');
+            sessionStorage.removeItem('last_screen');
+            location.reload();
+        }
+
+        function auth(type) {
+            const u = document.getElementById('u').value;
+            const p = document.getElementById('p').value;
+            document.getElementById('auth-msg').innerText = "";
+            if(!u || !p) { document.getElementById('auth-msg').innerText = "ENTER CREDENTIALS"; return; }
+            currentPass = p;
+            myHunter = { username: u };
+            socket.emit('authRequest', { type, u, p });
+        }
+
+        socket.on('authError', (msg) => { 
+            document.getElementById('auth-msg').innerText = msg;
+            if(msg.includes('ALREADY')) { alert(msg); location.reload(); }
+        });
+
         socket.on('authSuccess', (d) => {
-            myHunter = d; sessionStorage.setItem('hunter_creds', JSON.stringify({u: d.username, p: currentPass}));
+            myHunter = d;
+            sessionStorage.setItem('hunter_creds', JSON.stringify({u: d.username, p: currentPass}));
+            
             document.getElementById('p-name').innerText = d.username;
+            document.getElementById('p-name').className = d.isAdmin ? 'admin-glow' : '';
             document.getElementById('p-rank').innerText = d.rank;
+            document.getElementById('p-rank').style.color = d.color;
             document.getElementById('p-mp').innerText = `HuP: ${d.mana}`;
-            showScreen('screen-menu');
+            document.getElementById('p-stats').innerText = `W: ${d.wins || 0} | L: ${d.losses || 0}`;
+            document.getElementById('p-wr').innerText = `WORLD RANK #${d.worldRank || '--'}`;
+            
+            if (d.isAdmin) document.getElementById('admin-controls').style.display = 'flex';
+
+            const currentScreen = document.querySelector('.screen.active').id;
+            if(currentScreen !== 'screen-game') {
+                const lastScreen = sessionStorage.getItem('last_screen');
+                if(lastScreen && !['screen-game', 'screen-waiting', 'screen-auth'].includes(lastScreen)) {
+                    showScreen(lastScreen);
+                } else {
+                    showScreen('screen-menu');
+                }
+            }
+            renderRankings();
             if(d.music) playTrack(d.music);
         });
 
-        socket.on('authError', (m) => alert(m));
-
+        // --- CHAT SYSTEM ---
         let chatElement = null;
         function initChat() {
-            const t = document.getElementById('chat-template'); chatElement = t.firstElementChild.cloneNode(true);
-            const btn = chatElement.querySelector('button'); const inp = chatElement.querySelector('input');
-            const send = () => { if(inp.value.trim()){ socket.emit('sendMessage', { message: inp.value, senderName: myHunter.username, roomId: myRoomID }); inp.value=''; } };
-            btn.onclick = send; inp.onkeydown = (e) => { if(e.key==='Enter') send(); };
+            const tpl = document.getElementById('chat-template');
+            chatElement = tpl.firstElementChild.cloneNode(true);
+            const btn = chatElement.querySelector('button');
+            const inp = chatElement.querySelector('input');
+            
+            const send = () => {
+                if (inp.value.trim() && myHunter) {
+                    socket.emit('sendMessage', { 
+                        message: inp.value, 
+                        senderName: myHunter.username, 
+                        roomId: myRoomID,
+                        rank: (myHunter.mana) ? getShortRankLabel(myHunter.mana) : 'Rank ?'
+                    });
+                    inp.value = '';
+                }
+            };
+            btn.onclick = send;
+            inp.onkeydown = (e) => { if(e.key === 'Enter') send(); };
         }
         initChat();
 
-        function moveChatTo(aId, rId) { myRoomID=rId; socket.emit('joinChatRoom', rId); document.getElementById(aId).appendChild(chatElement); }
+        function moveChatTo(anchorId, roomId) {
+            myRoomID = roomId;
+            socket.emit('joinChatRoom', roomId);
+            const anchor = document.getElementById(anchorId);
+            const box = chatElement.querySelector('.chat-messages');
+            box.innerHTML = ''; 
+            anchor.appendChild(chatElement);
+        }
 
+        socket.on('receiveMessage', (data) => {
+            const box = chatElement.querySelector('.chat-messages');
+            const line = document.createElement('div');
+            if (data.isAdmin) line.classList.add('admin-msg');
+            line.innerHTML = `<span style="color:#aaa; font-size:0.7em;">[${data.timestamp}]</span> 
+                              <span style="color:${data.isAdmin ? 'var(--sys-gold)' : 'var(--sys-blue)'}; font-weight:900;">
+                                ${data.isAdmin?'👑':''}${data.sender}
+                              </span>: <span style="color:#fff;">${data.text}</span>`;
+            box.appendChild(line);
+            box.scrollTop = box.scrollHeight;
+        });
+
+        // --- NAVIGATION ---
         function showScreen(id) {
             document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
             document.getElementById(id).classList.add('active');
-            if(id === 'screen-menu') moveChatTo('chat-global-anchor', 'global');
-            else if(id === 'screen-lobby') moveChatTo('chat-lobby-anchor', 'lobby_main');
-            else if (id === 'screen-waiting') moveChatTo('chat-waiting-anchor', currentGateID);
-            else if (id === 'screen-game') { playTrack('gameplay.mp3'); moveChatTo('chat-game-anchor', currentGateID); }
+            if(id !== 'screen-auth') sessionStorage.setItem('last_screen', id);
+
+            if (id === 'screen-menu') {
+                playTrack('menu.mp3');
+                moveChatTo('chat-global-anchor', 'global');
+            } else if (id === 'screen-lobby') {
+                moveChatTo('chat-lobby-anchor', 'lobby_main');
+            } else if (id === 'screen-waiting') {
+                moveChatTo('chat-waiting-anchor', currentGateID);
+            } else if (id === 'screen-game') {
+                playTrack('gameplay.mp3');
+                moveChatTo('chat-game-anchor', currentGateID);
+            }
         }
 
-        function transportAnimation(cb) {
-            const o = document.getElementById('transition-overlay'); o.style.display='flex'; setTimeout(()=>o.style.opacity=1,10);
-            setTimeout(() => { cb(); setTimeout(() => { o.style.opacity=0; setTimeout(()=>o.style.display='none',500); }, 1000); }, 1500);
+        function transportAnimation(callback) {
+            const overlay = document.getElementById('transition-overlay');
+            overlay.style.display = 'flex';
+            setTimeout(() => overlay.style.opacity = 1, 10);
+            setTimeout(() => {
+                callback();
+                setTimeout(() => {
+                    overlay.style.opacity = 0;
+                    setTimeout(() => overlay.style.display = 'none', 500);
+                }, 1000);
+            }, 1500);
         }
 
-        function startAI(diff) { transportAnimation(() => socket.emit('startSoloAI', { user: myHunter.username, diff })); }
-        function openOnlineLobby() { showScreen('screen-lobby'); socket.emit('requestGateList'); }
-        socket.on('updateGateList', (l) => {
-            document.getElementById('room-list').innerHTML = l.map(r => `<div class="room-item" onclick="socket.emit('joinGate', {gateID:'${r.id}', user:'${myHunter.username}'})"><span>${r.name}</span><span style="color:var(--sys-blue)">${r.count}/4</span></div>`).join('');
+        // --- MENU / LOBBY LOGIC ---
+        function renderRankings() {
+            const el = document.getElementById('world-rank-list');
+            el.innerHTML = currentWorldRankings.slice(0, 15).map((u, i) => `
+                <div style="padding: 8px; border-bottom: 1px solid #222; display:flex; justify-content:space-between; font-weight:900; font-size:0.9rem;">
+                    <span style="color:${i<3 ? 'var(--sys-gold)' : (i<10 ? 'var(--rank-s)' : '#fff')}">#${i+1} ${u.username} ${u.isAdmin?'👑':''}</span>
+                    <span style="color:#888;">${u.hunterpoints} HuP</span>
+                </div>
+            `).join('');
+        }
+        socket.on('updateWorldRankings', (l) => { currentWorldRankings = l; renderRankings(); });
+
+        function doAdmin(action) {
+            if (action === 'kick') socket.emit('adminAction', { action: 'kick', target: document.getElementById('adm-kick').value });
+            if (action === 'broadcast') socket.emit('adminAction', { action: 'broadcast', message: document.getElementById('adm-bc').value });
+        }
+
+        function openOnlineLobby() {
+            if(!myHunter) return;
+            showScreen('screen-lobby');
+            socket.emit('requestGateList');
+        }
+
+        function createGate() {
+            const name = document.getElementById('room-name').value;
+            if (name) socket.emit('createGate', { host: myHunter.username, name });
+        }
+
+        socket.on('updateGateList', (list) => {
+            const el = document.getElementById('room-list');
+            el.innerHTML = list.map(r => `
+                <div class="room-item" onclick="socket.emit('joinGate', {gateID: '${r.id}', user: myHunter.username})">
+                    <span>${r.name} ${myHunter.isAdmin ? `<small style="color:red">[${r.id}]</small>` : ''}</span>
+                    <span style="color:var(--sys-blue)">${r.count}/4</span>
+                </div>
+            `).join('');
         });
 
-        socket.on('waitingRoomUpdate', (r) => { currentGateID=r.id; showScreen('screen-waiting'); document.getElementById('wr-title').innerText=r.name; });
-        function playerConfirm() { socket.emit('playerConfirm', { gateID: currentGateID }); }
-        function leaveWaitingRoom() { socket.emit('quitGame'); showScreen('screen-menu'); }
-        socket.on('gameStart', (d) => { currentGateID=d.roomId; transportAnimation(()=>showScreen('screen-game')); });
-        function quitAction() { socket.emit('quitGame'); currentGateID = null; document.getElementById('victory-screen').style.display='none'; showScreen('screen-menu'); }
-        socket.on('returnToProfile', () => { currentGateID = null; document.getElementById('victory-screen').style.display='none'; showScreen('screen-menu'); });
-
-        socket.on('gameStateUpdate', (state) => {
-            if(!state.active) return; currentGameState = state;
-            let me = state.players.find(p => p.id === socket.id) || state.players.find(p => p.name === myHunter.username);
+        // --- WAITING ROOM LOGIC ---
+        socket.on('waitingRoomUpdate', (room) => {
+            currentGateID = room.id;
+            if (!document.getElementById('screen-waiting').classList.contains('active')) showScreen('screen-waiting');
+            document.getElementById('wr-title').innerText = `GATE: ${room.name}`;
             
-            // *** PARTICIPANT CHECK FOR POWERUP ***
-            const pBtn = document.getElementById('btn-powerup');
-            if (me && me.alive && me.powerUp && state.processing && state.currentBattle) {
-                const isFighter = (me.id === state.currentBattle.attacker || me.id === state.currentBattle.defender);
-                pBtn.style.display = isFighter ? 'block' : 'none';
-                if(isFighter) { pBtn.innerText = `ACTIVATE ${me.powerUp}`; currentHunterPowerUp = me.powerUp; }
-            } else { pBtn.style.display = 'none'; }
+            const el = document.getElementById('wr-players');
+            el.innerHTML = room.players.map(p => `
+                <div style="padding: 10px; border-bottom: 1px solid #333; display: flex; justify-content: space-between; align-items: center;">
+                    <span style="color:${p.color}; font-weight:900;">${p.isAdmin?'👑':''}${p.name}</span>
+                    <span style="font-size: 0.8rem; color: #888;">${p.worldRankLabel || ''}</span>
+                    <span style="color:${p.confirmed ? 'var(--rank-e)' : '#444'}">${p.confirmed ? 'READY' : 'WAITING'}</span>
+                </div>
+            `).join('');
 
-            document.getElementById('turn-indicator').innerText = (me.id === state.players[state.turn].id) ? "YOUR TURN" : "WAITING...";
-            document.getElementById('ingame-party').innerHTML = state.players.map(p => `
-                <div style="padding: 5px; border-bottom: 1px solid #333; margin-bottom:5px; opacity:${p.alive?1:0.3};">
-                    <div style="color:${p.color}; font-weight:900;">${p.isAdmin?'👑':''}${p.name} ${p.isStunned?'😵':''} ${p.powerUp ? POWER_ICONS[p.powerUp]||'⭐' : ''}</div>
-                    <div style="display:flex; justify-content:space-between; font-size:0.8rem;">
-                        <span style="color:var(--sys-blue)">MP: ${(p.id===socket.id||(myHunter&&myHunter.isAdmin))?p.mana:p.displayRank}</span>
-                    </div>
-                </div>`).join('');
+            const me = room.players.find(p => p.name === myHunter.username);
+            const btn = document.getElementById('btn-ready');
+            if (me && me.confirmed) {
+                btn.innerText = "WAITING...";
+                btn.style.opacity = 0.5;
+                btn.disabled = true;
+            } else {
+                btn.innerText = "READY";
+                btn.style.opacity = 1;
+                btn.disabled = false;
+            }
+        });
 
-            const board = document.getElementById('game-board'); board.innerHTML = '';
-            const range = (isMyTurn && me) ? getMoveRange(me.mana) : 0;
+        function playerConfirm() { if(currentGateID) socket.emit('playerConfirm', { gateID: currentGateID }); }
+        
+        function leaveWaitingRoom() { 
+            currentGateID = null;
+            socket.emit('quitGame'); 
+            showScreen('screen-lobby'); 
+            socket.emit('requestGateList'); 
+        }
+
+        // --- GAME LOGIC (REBUILT SIMPLE) ---
+        function startAI(diff) {
+            transportAnimation(() => { socket.emit('startSoloAI', { user: myHunter.username, diff }); });
+        }
+
+        socket.on('gameStart', (data) => {
+            currentGateID = data.roomId;
+            transportAnimation(() => { showScreen('screen-game'); });
+        });
+
+        function quitAction() { 
+            socket.emit('quitGame'); 
+            // CLIENT-SIDE IMMEDIATE EXIT
+            currentGateID = null;
+            document.getElementById('victory-screen').style.display = 'none';
+            showScreen('screen-menu');
+        }
+
+        socket.on('returnToProfile', () => {
+            currentGateID = null;
+            document.getElementById('victory-screen').style.display = 'none';
+            showScreen('screen-menu');
+        });
+
+        // --- CORE GAME UPDATE ---
+        socket.on('gameStateUpdate', (state) => {
+            if (!state.active) return;
+            currentGameState = state; // Save for Victory Screen logic
+
+            // 1. Identify "Me"
+            let me = state.players.find(p => p.id === socket.id);
+            if (!me && myHunter) me = state.players.find(p => p.name === myHunter.username);
+            
+            // 2. Turn Indicator
             const turnPlayer = state.players[state.turn];
-            const isMyTurn = (me && me.id === turnPlayer.id && !state.processing);
+            const isMyTurn = (me && me.id === turnPlayer.id && !state.processing); // Lock inputs if processing
+            const ind = document.getElementById('turn-indicator');
+            
+            if(turnPlayer.isStunned) {
+                 ind.innerText = `>> ${turnPlayer.name.toUpperCase()} IS STUNNED (SKIP)`;
+                 ind.style.color = '#888';
+            } else {
+                 ind.innerText = isMyTurn ? ">> YOUR TURN" : `>> ${turnPlayer.name.toUpperCase()}'S TURN`;
+                 ind.style.color = turnPlayer.color;
+            }
+
+            // 3. Power Up UI (STRICT BATTLE PARTICIPANT CHECK)
+            const pBtn = document.getElementById('btn-powerup');
+            
+            // Check if player exists, is alive, has a powerup, and the game is in "Battle Phase"
+            if (me && me.alive && me.powerUp && state.processing && state.currentBattle) {
+                // Check if I am the attacker OR the defender
+                const isFighter = (me.id === state.currentBattle.attacker || me.id === state.currentBattle.defender);
+                
+                if (isFighter) {
+                    pBtn.style.display = 'block';
+                    pBtn.innerText = `ACTIVATE ${me.powerUp}`;
+                    currentHunterPowerUp = me.powerUp; 
+                } else {
+                    pBtn.style.display = 'none';
+                }
+            } else {
+                pBtn.style.display = 'none';
+            }
+
+            // 4. Render Party (Left HUD)
+            document.getElementById('ingame-party').innerHTML = state.players.map(p => {
+                const manaDisplay = (p.id === socket.id || (myHunter && myHunter.isAdmin)) ? p.mana : p.displayRank;
+                const stunIcon = p.isStunned ? '😵' : '';
+                return `
+                <div style="padding: 5px; border-bottom: 1px solid #333; margin-bottom:5px; opacity:${p.alive?1:0.3};">
+                    <div style="color:${p.color}; font-weight:900;">${p.isAdmin?'👑':''}${p.name} ${stunIcon} ${p.powerUp ? POWER_ICONS[p.powerUp]||'⭐' : ''}</div>
+                    <div style="display:flex; justify-content:space-between; font-size:0.8rem;">
+                        <span>${p.worldRankLabel || ''}</span>
+                        <span style="color:var(--sys-blue)">MP: ${manaDisplay}</span>
+                    </div>
+                </div>`;
+            }).join('');
+
+            // 5. Render Board
+            const board = document.getElementById('game-board');
+            board.innerHTML = '';
+            
+            // Calculate Movement Range
+            const range = (isMyTurn && me) ? getMoveRange(me.mana) : 0;
 
             for(let y=0; y<15; y++) {
                 for(let x=0; x<15; x++) {
-                    const cell = document.createElement('div'); cell.className = 'cell';
+                    const cell = document.createElement('div');
+                    cell.className = 'cell';
                     const key = `${x}-${y}`;
-                    if(state.world[key]) {
-                        cell.style.backgroundColor = state.world[key].color;
-                        if(state.world[key].rank === 'Silver') cell.classList.add('silver-monarch');
-                    }
-                    const p = state.players.find(pl => pl.alive && pl.x === x && pl.y === y);
-                    if(p) cell.innerHTML = `<div class="humanoid"><div class="name-tag" style="color:${p.color}">${p.name}</div><div class="h-head" style="border-color:${p.color};"></div><div class="h-body" style="border-color:${p.color};"></div></div>`;
                     
+                    // A. Render Gate
+                    if (state.world[key]) {
+                        cell.style.backgroundColor = state.world[key].color;
+                        if(state.world[key].rank === 'Silver') {
+                            cell.classList.add('silver-monarch');
+                        }
+                    }
+
+                    // B. Render Player
+                    const pAtCell = state.players.find(p => p.alive && p.x === x && p.y === y);
+                    if (pAtCell) {
+                         const stunStyle = pAtCell.isStunned ? 'opacity:0.5; filter:grayscale(100%);' : '';
+                         cell.innerHTML = `
+                            <div class="humanoid" style="${stunStyle}">
+                                <div class="name-tag" style="color:${pAtCell.color}">${pAtCell.isAdmin?'👑':''}${pAtCell.name}</div>
+                                <div class="h-head" style="border-color:${pAtCell.color}; box-shadow:0 0 5px ${pAtCell.color};"></div>
+                                <div class="h-body" style="border-color:${pAtCell.color}; box-shadow:0 0 5px ${pAtCell.color};"></div>
+                            </div>`;
+                    }
+
+                    // C. Render Valid Move (Only if My Turn + Alive + Not Processing + In Range + Not Stunned)
                     if (isMyTurn && me && me.alive && !me.isStunned) {
-                         const dx = Math.abs(me.x - x); const dy = Math.abs(me.y - y);
+                         const dx = Math.abs(me.x - x);
+                         const dy = Math.abs(me.y - y);
                          let isValid = false;
-                         if (dx === 0 && dy === 0) isValid = false;
-                         else if (dx > 0 && dy > 0) isValid = (dx === 1 && dy === 1); // Diagonal 1 tile
-                         else isValid = ((dx + dy) <= range); // Cardinal Range
-                         
-                         if (isValid) { cell.classList.add('valid-move'); cell.onclick = () => socket.emit('playerAction', {tx:x, ty:y}); }
+
+                         if (dx === 0 && dy === 0) {
+                             isValid = false; // Self
+                         } else if (dx === 0 || dy === 0) {
+                             // Cardinal: Check Rank Range
+                             if ((dx + dy) <= range) isValid = true;
+                         } else {
+                             // Diagonal: Strictly 1 tile
+                             if (dx === 1 && dy === 1) isValid = true;
+                         }
+
+                         if (isValid) {
+                             cell.classList.add('valid-move');
+                             cell.onclick = () => socket.emit('playerAction', { tx: x, ty: y });
+                         }
                     }
                     board.appendChild(cell);
                 }
             }
         });
 
-        socket.on('battleStart', (d) => {
-            const p = document.getElementById('vs-panel'); p.style.display = 'flex';
-            document.getElementById('vs-content').innerHTML = `<span style="color:${d.hunterColor}; font-weight:900;">${d.hunter}</span><br><span style="font-size:0.8rem; color:#666;">VS</span><br><span style="color:${d.targetColor}; font-weight:900;">${d.target}</span><div style="font-size:0.8rem; color:#aaa; margin-top:5px;">${d.targetRank}</div>`;
-            const b = document.getElementById('vs-bar'); b.style.width = '0%';
-            setTimeout(() => { b.style.transition = 'width 4.8s linear'; b.style.width = '100%'; }, 50);
+        // --- BATTLE & EVENTS ---
+        socket.on('battleStart', (data) => {
+            const panel = document.getElementById('vs-panel');
+            panel.style.display = 'flex';
+            document.getElementById('vs-content').innerHTML = `
+                <span style="color:${data.hunterColor}; font-weight:900;">${data.hunter}</span>
+                <br><span style="font-size:0.8rem; color:#666;">VS</span><br>
+                <span style="color:${data.targetColor}; font-weight:900;">${data.target}</span>
+                <div style="font-size:0.8rem; color:#aaa; margin-top:5px;">${data.targetRank}</div>`;
+            const bar = document.getElementById('vs-bar');
+            bar.style.transition = 'none';
+            bar.style.width = '0%';
+            setTimeout(() => { bar.style.transition = 'width 4.8s linear'; bar.style.width = '100%'; }, 50);
         });
-        socket.on('battleEnd', () => { document.getElementById('vs-panel').style.display='none'; });
-        function usePowerUp() { if(currentHunterPowerUp) { socket.emit('activateSkill', {powerUp: currentHunterPowerUp}); document.getElementById('btn-powerup').style.display='none'; } }
-        socket.on('announcement', (msg) => { const feed = document.getElementById('announcement-feed'); const el = document.createElement('div'); el.style.color = 'var(--sys-gold)'; el.innerText = `[SYSTEM]: ${msg}`; feed.prepend(el); });
+
+        socket.on('battleEnd', () => { document.getElementById('vs-panel').style.display = 'none'; });
+
+        function usePowerUp() {
+            if (currentHunterPowerUp && currentGameState && currentGameState.processing) {
+                socket.emit('activateSkill', { powerUp: currentHunterPowerUp });
+                document.getElementById('btn-powerup').style.display = 'none';
+            }
+        }
+
+        socket.on('announcement', (msg) => {
+            const feed = document.getElementById('announcement-feed');
+            const el = document.createElement('div');
+            el.style.color = 'var(--sys-gold)';
+            el.style.marginBottom = '5px';
+            el.innerText = `[SYSTEM]: ${msg}`;
+            feed.prepend(el);
+        });
 
         socket.on('victoryEvent', (data) => {
-            const scr = document.getElementById('victory-screen'); scr.style.display = 'flex';
+            const scr = document.getElementById('victory-screen');
+            scr.style.display = 'flex';
             document.getElementById('winner-name').innerText = data.winner;
+            
             const isMe = (myHunter && myHunter.username === data.winner);
+            const info = document.getElementById('reward-info');
+            
+            // Determine rewards based on Online vs Offline (AI)
             const isOnline = currentGameState ? currentGameState.isOnline : false;
-            document.getElementById('reward-info').innerText = isMe ? `REWARD: +${isOnline?20:5} HuP` : `MISSION ENDED`;
-            document.getElementById('reward-info').style.color = isMe ? 'var(--rank-e)' : '#888';
+
+            if (isMe) { 
+                info.innerText = `REWARD: +${isOnline?20:5} HUNTER POINTS`; 
+                info.style.color = 'var(--rank-e)'; 
+            } else { 
+                info.innerText = `MISSION ENDED`; 
+                info.style.color = '#888'; 
+            }
         });
 
-        function getShortRankLabel(m) { if(m >= 901) return "S-RANK"; if(m >= 701) return "A-RANK"; if(m >= 501) return "B-RANK"; if(m >= 301) return "C-RANK"; if(m >= 101) return "D-RANK"; return "E-RANK"; }
-        function getMoveRange(mana) { if (mana >= 901) return 6; if (mana >= 701) return 5; if (mana >= 501) return 4; if (mana >= 301) return 3; if (mana >= 101) return 2; return 1; }
+        socket.on('sysLog', (msg) => alert(`ADMIN: ${msg}`));
+
+        function getShortRankLabel(m) {
+            if(m >= 901) return "S-RANK";
+            if(m >= 701) return "A-RANK";
+            if(m >= 501) return "B-RANK";
+            if(m >= 301) return "C-RANK";
+            if(m >= 101) return "D-RANK";
+            return "E-RANK";
+        }
+        
+        function getMoveRange(mana) {
+            if (mana >= 901) return 6; // S
+            if (mana >= 701) return 5; // A
+            if (mana >= 501) return 4; // B
+            if (mana >= 301) return 3; // C
+            if (mana >= 101) return 2; // D
+            return 1; // E
+        }
     </script>
 </body>
 </html>
