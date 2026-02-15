@@ -550,6 +550,9 @@
             const board = document.getElementById('game-board');
             board.innerHTML = '';
             
+            // Calculate Movement Range
+            const range = (isMyTurn && me) ? getMoveRange(me.mana) : 0;
+
             for(let y=0; y<15; y++) {
                 for(let x=0; x<15; x++) {
                     const cell = document.createElement('div');
@@ -575,11 +578,11 @@
                             </div>`;
                     }
 
-                    // C. Render Valid Move (Only if My Turn + Alive + Not Processing)
+                    // C. Render Valid Move (Only if My Turn + Alive + Not Processing + In Range)
                     if (isMyTurn && me && me.alive) {
                          const dist = Math.abs(me.x - x) + Math.abs(me.y - y);
-                         // Simple Client Side Check (Server validates again)
-                         if (dist === 1) {
+                         // Check Range (Client Side Visual)
+                         if (dist <= range && dist > 0) {
                              cell.classList.add('valid-move');
                              cell.onclick = () => socket.emit('playerAction', { tx: x, ty: y });
                          }
@@ -651,6 +654,15 @@
             if(m >= 301) return "C-RANK";
             if(m >= 101) return "D-RANK";
             return "E-RANK";
+        }
+        
+        function getMoveRange(mana) {
+            if (mana >= 901) return 6; // S
+            if (mana >= 701) return 5; // A
+            if (mana >= 501) return 4; // B
+            if (mana >= 301) return 3; // C
+            if (mana >= 101) return 2; // D
+            return 1; // E
         }
     </script>
 </body>
