@@ -367,6 +367,9 @@ function processMove(room, player, tx, ty) {
     const enemy = room.players.find(other => other.id !== player.id && other.alive && other.x === tx && other.y === ty);
     const gateKey = `${tx}-${ty}`;
     const gate = room.world[gateKey];
+    
+    // *** FIX: BROADCAST STATE IMMEDIATELY SO CLIENT SEES "PROCESSING" (Powerup Button) ***
+    broadcastGameState(room); 
 
     if (enemy) {
         // --- PVP BATTLE ---
@@ -504,10 +507,14 @@ function resolveBattle(room, attacker, defender, isGate) {
                 }
             } else {
                 defender.alive = false;
+                // Defeated Player in AI Mode penalty check
+                if (!room.isOnline) dbUpdateHunter(defender.name, -1, false);
             }
         } else {
             if(!isGate) defender.mana += attacker.mana;
             attacker.alive = false;
+             // Defeated Player in AI Mode penalty check
+             if (!room.isOnline) dbUpdateHunter(attacker.name, -1, false);
         }
     }
 
@@ -709,6 +716,24 @@ function handleDisconnect(socket, isQuit) {
     const room = Object.values(rooms).find(r => r.players.some(p => p.id === socket.id));
     if(room) {
         const p = room.players.find(pl => pl.id === socket.id);
+        
+        // *** FIX 1: WAITING ROOM CHECK ***
+        // If the game hasn't started yet (active is false), remove player cleanly without penalty.
+        if (!room.active) {
+             const index = room.players.findIndex(pl => pl.id === socket.id);
+             if (index !== -1) {
+                 room.players.splice(index, 1);
+                 // If room empty, delete
+                 if(room.players.length === 0) delete rooms[room.id];
+                 else io.to(room.id).emit('waitingRoomUpdate', room);
+             }
+             syncAllGates();
+             const u = Object.keys(connectedUsers).find(key => connectedUsers[key] === socket.id);
+             if(u) delete connectedUsers[u];
+             return;
+        }
+
+        // *** GAME ACTIVE LOGIC ***
         if(isQuit) {
             p.quit = true; 
             p.alive = false; 
@@ -718,6 +743,8 @@ function handleDisconnect(socket, isQuit) {
                 dbUpdateHunter(p.name, -20, false);
                 io.to(room.id).emit('announcement', `${p.name} HAS QUIT (PENALTY -20).`);
             } else {
+                // *** FIX 2: AI PENALTY ***
+                dbUpdateHunter(p.name, -1, false);
                 io.to(room.id).emit('announcement', `${p.name} HAS QUIT.`);
             }
             
@@ -762,12 +789,15 @@ function triggerRespawn(room, survivorId) {
     room.players.forEach(p => {
         if(!p.quit) {
             p.alive = true;
+            // Reset Stun Counters
             p.turnsWithoutBattle = 0;
             p.isStunned = false;
 
             if(survivorId && p.id !== survivorId) {
+                 // Defeated players respawn with bonus 500-1500 MP
                  p.mana += Math.floor(Math.random() * 1001) + 500;
             }
+            // Survivor retains current MP (no changes)
         }
     });
     
