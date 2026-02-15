@@ -6,7 +6,21 @@
     <script src="/socket.io/socket.io.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Exo+2:ital,wght@1,900&family=Orbitron:wght@400;900&display=swap" rel="stylesheet">
     <style>
-        :root { --sys-blue: #00d2ff; --sys-red: #ff003c; --sys-gold: #ffcc00; --sys-silver: #ffffff; --sys-green: #00ff00; --sys-purple: #9d00ff; }
+        /* UPDATED COLOR PALETTE */
+        :root { 
+            --sys-blue: #00d2ff; 
+            --sys-gold: #ffcc00; 
+            --sys-silver: #ffffff; 
+            
+            /* RANK COLORS */
+            --rank-s: #ff0000; /* Red */
+            --rank-a: #ff00ff; /* Pink */
+            --rank-b: #ff9900; /* Orange */
+            --rank-c: #ffff00; /* Yellow */
+            --rank-d: #99ff00; /* Yellow Green */
+            --rank-e: #00ff00; /* Green */
+        }
+
         body { background: #000; color: white; font-family: 'Exo 2', sans-serif; margin: 0; overflow: hidden; user-select: none; }
         h1, h2, h3 { font-family: 'Orbitron'; font-style: italic; color: var(--sys-blue); text-shadow: 0 0 10px var(--sys-blue); margin: 5px 0; }
         
@@ -18,8 +32,8 @@
         .sys-btn { background: #000; border: 2px solid var(--sys-blue); color: var(--sys-blue); padding: 12px 30px; font-family: 'Orbitron'; cursor: pointer; margin: 8px; font-weight: 900; clip-path: polygon(10% 0, 100% 0, 90% 100%, 0 100%); width: 260px; text-transform: uppercase; transition: 0.2s; letter-spacing: 2px; }
         .sys-btn:hover { background: var(--sys-blue); color: #000; box-shadow: 0 0 15px var(--sys-blue); }
         .sys-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-        .sys-btn.danger { border-color: var(--sys-red); color: var(--sys-red); }
-        .sys-btn.danger:hover { background: var(--sys-red); color: #000; box-shadow: 0 0 15px var(--sys-red); }
+        .sys-btn.danger { border-color: var(--rank-s); color: var(--rank-s); }
+        .sys-btn.danger:hover { background: var(--rank-s); color: #000; box-shadow: 0 0 15px var(--rank-s); }
         .sys-btn.gold { border-color: var(--sys-gold); color: var(--sys-gold); }
         .sys-btn.gold:hover { background: var(--sys-gold); color: #000; }
 
@@ -28,7 +42,7 @@
 
         /* Auth Screen */
         #screen-auth { background: radial-gradient(circle at center, #111 0%, #000 100%); }
-        #auth-msg { color: var(--sys-red); font-family: 'Orbitron'; height: 20px; font-size: 0.9rem; margin-bottom: 10px; text-shadow: 0 0 5px var(--sys-red); }
+        #auth-msg { color: var(--rank-s); font-family: 'Orbitron'; height: 20px; font-size: 0.9rem; margin-bottom: 10px; text-shadow: 0 0 5px var(--rank-s); }
 
         /* Profile & Menu */
         .profile-container { display: flex; width: 90vw; height: 85vh; gap: 20px; }
@@ -71,8 +85,8 @@
         .admin-msg { border-left: 2px solid var(--sys-gold); padding-left: 5px; background: rgba(255, 204, 0, 0.05); }
 
         /* VS Screen */
-        #vs-panel { display: none; background: rgba(10,0,0,0.95); border: 2px solid var(--sys-red); padding: 15px; margin-bottom: 10px; flex-direction: column; align-items: center; box-shadow: 0 0 20px var(--sys-red); }
-        .v-fill { height: 8px; background: var(--sys-red); width: 0%; margin-top: 10px; box-shadow: 0 0 10px var(--sys-red); }
+        #vs-panel { display: none; background: rgba(10,0,0,0.95); border: 2px solid var(--rank-s); padding: 15px; margin-bottom: 10px; flex-direction: column; align-items: center; box-shadow: 0 0 20px var(--rank-s); }
+        .v-fill { height: 8px; background: var(--rank-s); width: 0%; margin-top: 10px; box-shadow: 0 0 10px var(--rank-s); }
 
         /* Rank Guide */
         .rank-table { width: 100%; font-size: 0.75rem; border-collapse: collapse; color: #888; margin-top: auto; }
@@ -210,7 +224,7 @@
 
         <div class="hud-right">
             <div id="vs-panel">
-                <div style="font-size: 1.2rem; color: var(--sys-red); font-weight: 900; letter-spacing: 2px;">COMBAT</div>
+                <div style="font-size: 1.2rem; color: var(--rank-s); font-weight: 900; letter-spacing: 2px;">COMBAT</div>
                 <div id="vs-content" style="text-align: center; margin: 10px 0; font-size: 1.1rem;"></div>
                 <div style="width: 100%; background: #222; height: 8px;"><div class="v-fill" id="vs-bar"></div></div>
             </div>
@@ -221,18 +235,18 @@
 
             <div class="rank-guide-title" style="border-bottom: 1px solid #333; margin-bottom: 5px; font-weight:900;">MP RANKING DATA</div>
             <table class="rank-table">
-                <tr><td style="color:var(--sys-red)">Higher S</td><td>1000+</td></tr>
-                <tr><td style="color:var(--sys-red)">Lower S</td><td>901-999</td></tr>
-                <tr><td style="color:var(--sys-silver)">Higher A</td><td>801-900</td></tr>
-                <tr><td style="color:var(--sys-silver)">Lower A</td><td>701-800</td></tr>
-                <tr><td style="color:var(--sys-gold)">Higher B</td><td>601-700</td></tr>
-                <tr><td style="color:var(--sys-gold)">Lower B</td><td>501-600</td></tr>
-                <tr><td style="color:var(--sys-blue)">Higher C</td><td>401-500</td></tr>
-                <tr><td style="color:var(--sys-blue)">Lower C</td><td>301-400</td></tr>
-                <tr><td style="color:var(--sys-green)">Higher D</td><td>201-300</td></tr>
-                <tr><td style="color:var(--sys-green)">Lower D</td><td>101-200</td></tr>
-                <tr><td>Higher E</td><td>51-100</td></tr>
-                <tr><td>Lower E</td><td>0-50</td></tr>
+                <tr><td style="color:var(--rank-s)">Higher S</td><td>1000+</td></tr>
+                <tr><td style="color:var(--rank-s)">Lower S</td><td>901-999</td></tr>
+                <tr><td style="color:var(--rank-a)">Higher A</td><td>801-900</td></tr>
+                <tr><td style="color:var(--rank-a)">Lower A</td><td>701-800</td></tr>
+                <tr><td style="color:var(--rank-b)">Higher B</td><td>601-700</td></tr>
+                <tr><td style="color:var(--rank-b)">Lower B</td><td>501-600</td></tr>
+                <tr><td style="color:var(--rank-c)">Higher C</td><td>401-500</td></tr>
+                <tr><td style="color:var(--rank-c)">Lower C</td><td>301-400</td></tr>
+                <tr><td style="color:var(--rank-d)">Higher D</td><td>201-300</td></tr>
+                <tr><td style="color:var(--rank-d)">Lower D</td><td>101-200</td></tr>
+                <tr><td style="color:var(--rank-e)">Higher E</td><td>51-100</td></tr>
+                <tr><td style="color:var(--rank-e)">Lower E</td><td>0-50</td></tr>
             </table>
 
             <button class="sys-btn danger" style="width: 100%; margin-top: 15px;" onclick="quitAction()">QUIT QUEST</button>
@@ -425,7 +439,7 @@
             const el = document.getElementById('world-rank-list');
             el.innerHTML = currentWorldRankings.slice(0, 15).map((u, i) => `
                 <div style="padding: 8px; border-bottom: 1px solid #222; display:flex; justify-content:space-between; font-weight:900; font-size:0.9rem;">
-                    <span style="color:${i<3 ? 'var(--sys-gold)' : (i<10 ? 'var(--sys-red)' : '#fff')}">#${i+1} ${u.username} ${u.isAdmin?'👑':''}</span>
+                    <span style="color:${i<3 ? 'var(--sys-gold)' : (i<10 ? 'var(--rank-s)' : '#fff')}">#${i+1} ${u.username} ${u.isAdmin?'👑':''}</span>
                     <span style="color:#888;">${u.hunterpoints} HuP</span>
                 </div>
             `).join('');
@@ -469,7 +483,7 @@
                 <div style="padding: 10px; border-bottom: 1px solid #333; display: flex; justify-content: space-between; align-items: center;">
                     <span style="color:${p.color}; font-weight:900;">${p.isAdmin?'👑':''}${p.name}</span>
                     <span style="font-size: 0.8rem; color: #888;">${p.worldRankLabel || ''}</span>
-                    <span style="color:${p.confirmed ? 'var(--sys-green)' : '#444'}">${p.confirmed ? 'READY' : 'WAITING'}</span>
+                    <span style="color:${p.confirmed ? 'var(--rank-e)' : '#444'}">${p.confirmed ? 'READY' : 'WAITING'}</span>
                 </div>
             `).join('');
 
@@ -663,7 +677,7 @@
 
             if (isMe) { 
                 info.innerText = `REWARD: +${isOnline?20:5} HUNTER POINTS`; 
-                info.style.color = 'var(--sys-green)'; 
+                info.style.color = 'var(--rank-e)'; 
             } else { 
                 info.innerText = `MISSION ENDED`; 
                 info.style.color = '#888'; 
