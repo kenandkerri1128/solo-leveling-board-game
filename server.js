@@ -31,7 +31,18 @@ let adminSocketId = null;
 const ADMIN_NAME = "Kei"; 
 const AI_NAMES = ["Sung Jinwoo", "Cha Hae-In", "Baek Yoonho", "Choi Jong-In"];
 const PLAYER_COLORS = ['#00d2ff', '#ff3e3e', '#bcff00', '#ff00ff']; 
-const RANK_COLORS = { 'E': '#00ff00', 'D': '#99ff00', 'C': '#ffff00', 'B': '#ff9900', 'A': '#ff00ff', 'S': '#ff0000', 'Silver': '#ffffff' };
+
+// UPDATED COLOR SCHEME TO MATCH YOUR REQUEST
+const RANK_COLORS = { 
+    'E': '#00ff00', // Green
+    'D': '#99ff00', // Yellow Green
+    'C': '#ffff00', // Yellow
+    'B': '#ff9900', // Orange
+    'A': '#ff00ff', // Pink
+    'S': '#ff0000', // Red
+    'Silver': '#ffffff' // White
+};
+
 const POWER_UPS = ['DOUBLE DAMAGE', 'GHOST WALK', 'NETHER SWAP', 'RULERS AUTHORITY'];
 const CORNERS = [{x:0,y:0}, {x:14,y:0}, {x:0,y:14}, {x:14,y:14}];
 
@@ -211,7 +222,7 @@ io.on('connection', (socket) => {
         
         rooms[id] = {
             id, name: data.name, isOnline: true, active: false, processing: false,
-            turn: 0, globalTurns: 0, survivorTurns: 0, respawnHappened: false,
+            turn: 0, currentRoundMoves: 0, round: 1, survivorTurns: 0, respawnHappened: false,
             players: [{ 
                 id: socket.id, name: data.host, slot: 0, ...CORNERS[0], 
                 mana, rankLabel: getFullRankLabel(mana), worldRankLabel: wr.label, 
@@ -265,7 +276,7 @@ io.on('connection', (socket) => {
         
         rooms[id] = {
             id, isOnline: false, active: false, processing: false, mode: data.diff,
-            turn: 0, globalTurns: 0, survivorTurns: 0, respawnHappened: false,
+            turn: 0, currentRoundMoves: 0, round: 1, survivorTurns: 0, respawnHappened: false,
             players: [
                 { id: socket.id, name: data.user, slot: 0, ...CORNERS[0], mana, rankLabel: getFullRankLabel(mana), alive: true, isAI: false, color: PLAYER_COLORS[0], quit: false, powerUp: null, isAdmin: (data.user === ADMIN_NAME), turnsWithoutBattle: 0, isStunned: false },
                 { id: 'ai1', name: AI_NAMES[1], slot: 1, ...CORNERS[1], mana: 200, rankLabel: "Lower D-Rank", alive: true, isAI: true, color: PLAYER_COLORS[1], quit: false, powerUp: null, turnsWithoutBattle: 0, isStunned: false },
@@ -549,19 +560,26 @@ function finishTurn(room) {
         }
     }
 
-    room.globalTurns++;
-
-    // GATE SPAWNING (3-5 gates every 3 turns)
-    if(room.globalTurns % 3 === 0) {
-        const count = 3 + rInt(3); // 3 to 5
-        for(let i=0; i<count; i++) spawnGate(room);
-        broadcastGameState(room);
+    // --- ROUND TRACKING ---
+    room.currentRoundMoves++;
+    const livingCount = room.players.filter(p => p.alive).length;
+    
+    if (room.currentRoundMoves >= livingCount) {
+        room.currentRoundMoves = 0;
+        room.round++;
+        
+        // SPAWN GATES EVERY 3 FULL ROUNDS
+        if (room.round % 3 === 0) {
+            const count = 3 + rInt(3); // 3 to 5
+            for(let i=0; i<count; i++) spawnGate(room);
+            broadcastGameState(room);
+        }
     }
 
     const silverGate = Object.values(room.world).find(g => g.rank === 'Silver');
     const alive = room.players.filter(p => p.alive);
     
-    // Silver Monarch Timer
+    // Silver Monarch Timer (Survivor Turns)
     if (silverGate && alive.length === 1) {
         room.survivorTurns++;
         if (room.survivorTurns >= 5) {
@@ -691,7 +709,7 @@ function handleWin(room, winnerName) {
 
     setTimeout(() => {
         io.to(room.id).emit('returnToProfile');
-        delete rooms[room.id];
+        delete rooms[room.id]; // STRICT DELETION
         syncAllGates();
     }, 6000);
 }
@@ -723,7 +741,7 @@ function handleDisconnect(socket, isQuit) {
             // --- END GAME IF SOLO ---
             if(!room.isOnline) {
                 io.to(room.id).emit('returnToProfile'); // Force back
-                delete rooms[room.id];
+                delete rooms[room.id]; // DESTROY ROOM
                 syncAllGates();
                 return;
             }
@@ -735,7 +753,7 @@ function handleDisconnect(socket, isQuit) {
         // Cleanup if empty
         const connected = room.players.filter(pl => !pl.quit && !pl.isAI); 
         // If everyone is gone:
-        if(isQuit && connected.length === 0 && !room.isOnline) delete rooms[room.id]; 
+        if(isQuit && connected.length === 0) delete rooms[room.id]; 
         
         syncAllGates();
     }
@@ -773,7 +791,15 @@ function spawnGate(room) {
     do { sx=rInt(15); sy=rInt(15); safe++; } while((room.players.some(p=>p.x===sx && p.y===sy) || room.world[`${sx}-${sy}`]) && safe<50);
     if(safe>=50) return;
 
-    const tiers = room.respawnHappened ? ['A','S'] : ['E','D','C','B'];
+    let tiers = [];
+    if (room.respawnHappened) {
+        tiers = ['S', 'A']; 
+    } else {
+        if (room.round <= 3) tiers = ['E', 'D'];
+        else if (room.round <= 6) tiers = ['D', 'C', 'B'];
+        else tiers = ['C', 'B', 'A'];
+    }
+
     const rank = tiers[rInt(tiers.length)];
     const range = { 'E':[10,100], 'D':[101,200], 'C':[201,400], 'B':[401,600], 'A':[601,900], 'S':[901,1500] }[rank];
     const mana = rInt(range[1]-range[0]) + range[0];
