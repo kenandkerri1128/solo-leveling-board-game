@@ -238,7 +238,6 @@ io.on('connection', (socket) => {
             const isAdmin = (user.username === ADMIN_NAME);
             if (isAdmin) adminSocketId = socket.id;
 
-            // --- CRITICAL RECONNECTION FIX ---
             let reconnected = false;
             for (const roomId in rooms) {
                 const room = rooms[roomId];
@@ -315,6 +314,7 @@ io.on('connection', (socket) => {
 
         rooms[id] = {
             id, name: data.name, isOnline: true, active: false, turn: 0, globalTurns: 0, survivorTurns: 0,
+            resolving: false, // NEW: INPUT LOCK
             respawnHappened: false,
             players: [{ 
                 id: socket.id, 
@@ -390,6 +390,7 @@ io.on('connection', (socket) => {
 
         rooms[id] = {
             id, active: true, turn: 0, isOnline: false, mode: data.diff, globalTurns: 0, survivorTurns: 0,
+            resolving: false, // NEW: INPUT LOCK
             respawnHappened: false,
             players: [
                 { id: socket.id, name: data.user, slot: 0, ...CORNERS[0], mana: playerMana, rankLabel: getFullRankLabel(playerMana), alive: true, isAI: false, color: PLAYER_COLORS[0], quit: false, powerUp: null, isAdmin: (data.user === ADMIN_NAME) },
@@ -471,13 +472,27 @@ io.on('connection', (socket) => {
     socket.on('playerAction', async (data) => {
         const room = Object.values(rooms).find(r => r.players.some(p => p.id === socket.id));
         if (!room || !room.active) return;
+        
+        // --- CRITICAL FIX: LOCK INPUT WHILE RESOLVING ---
+        if (room.resolving) return;
+
         if (socket.id === adminSocketId && !room.players.some(p => p.id === adminSocketId)) return;
 
         const p = room.players[room.turn];
-        if (!p || p.id !== socket.id) {
-             socket.emit('announcement', "SYSTEM: NOT YOUR TURN OR ID MISMATCH.");
+        
+        // --- CRITICAL FIX: ROBUST ID CHECK ---
+        // Verify identity by Socket ID OR by Username (Backup for Reconnects)
+        let isOwner = (p.id === socket.id);
+        if (!isOwner) {
+            const username = Object.keys(connectedUsers).find(u => connectedUsers[u] === socket.id);
+            if (username && username === p.name) isOwner = true;
+        }
+
+        if (!p || !isOwner) {
+             socket.emit('announcement', "SYSTEM: NOT YOUR TURN.");
              return;
         }
+
         if (isPathBlocked(room, p.x, p.y, data.tx, data.ty)) {
             socket.emit('announcement', "SYSTEM: MOVEMENT BLOCKED BY A GATE.");
             return;
@@ -486,8 +501,15 @@ io.on('connection', (socket) => {
         const alivePlayers = room.players.filter(pl => pl.alive);
         if (alivePlayers.length === 1) room.survivorTurns++;
         
+        // LOCK ROOM
+        room.resolving = true;
+
         p.x = data.tx; p.y = data.ty;
         await resolveConflict(room, p);
+        
+        // UNLOCK ROOM
+        room.resolving = false;
+
         if (rooms[room.id]) advanceTurn(room);
     });
 
@@ -536,7 +558,7 @@ async function resolveConflict(room, p) {
             }
 
             let pCalcMana = p.mana, oCalcMana = opponent.mana, combatCancelled = false;
-            // ... (Battle Calculation Logic unchanged) ...
+            
             [p, opponent].forEach(player => {
                 if (player.activePowerUp) {
                     const type = player.activePowerUp.type;
@@ -603,7 +625,7 @@ async function resolveConflict(room, p) {
 
             if (p.mana >= gate.mana) {
                 p.mana += gate.mana;
-                delete room.world[coord]; // Gate removed here
+                delete room.world[coord]; 
                 if (gate.rank === 'Silver') {
                     if (!p.isAI && room.isOnline) {
                         await processWin(room, p.name);
@@ -710,9 +732,6 @@ function advanceTurn(room) {
     const nextPlayer = room.players[room.turn];
     if (!nextPlayer) return; 
 
-    // CRITICAL FIX: Broadcast state immediately.
-    // This updates the client so you see the result of your move (Gate Removed, MP Up)
-    // AND informs you that it is now the AI's turn.
     broadcastGameState(room); 
 
     if (aliveCount === 1 && !Object.values(room.world).some(g => g.rank === 'Silver')) {
@@ -736,7 +755,7 @@ function advanceTurn(room) {
                 const silverMana = Math.floor(Math.random() * 15501) + 1500;
                 room.world[`${sx}-${sy}`] = { rank: 'Silver', color: '#fff', mana: silverMana };
                 io.to(room.id).emit('announcement', "SYSTEM: THE SILVER GATE HAS APPEARED NEARBY.");
-                broadcastGameState(room); // Broadcast silver gate spawn immediately
+                broadcastGameState(room); 
             }
         }
     }
@@ -760,7 +779,10 @@ function advanceTurn(room) {
             } else { tx += (Math.random() > 0.5 ? 1 : -1); ty += (Math.random() > 0.5 ? 1 : -1); }
             
             tx = Math.max(0, Math.min(14, tx)); ty = Math.max(0, Math.min(14, ty));
-            if (!isPathBlocked(room, nextPlayer.x, nextPlayer.y, tx, ty)) { nextPlayer.x = tx; nextPlayer.y = ty; await resolveConflict(room, nextPlayer); }
+            if (!isPathBlocked(room, nextPlayer.x, nextPlayer.y, tx, ty)) { 
+                nextPlayer.x = tx; nextPlayer.y = ty; 
+                await resolveConflict(room, nextPlayer); 
+            }
             if (rooms[room.id]) advanceTurn(room);
         }, 800);
     }
