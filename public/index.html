@@ -6,7 +6,7 @@
     <script src="/socket.io/socket.io.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Exo+2:ital,wght@1,900&family=Orbitron:wght@400;900&display=swap" rel="stylesheet">
     <style>
-        /* UPDATED COLOR PALETTE PER REQUEST */
+        /* UPDATED COLOR PALETTE */
         :root { 
             --sys-blue: #00d2ff; 
             --sys-gold: #ffcc00; 
@@ -443,9 +443,14 @@
         function renderRankings() {
             const el = document.getElementById('world-rank-list');
             el.innerHTML = currentWorldRankings.slice(0, 15).map((u, i) => `
-                <div style="padding: 8px; border-bottom: 1px solid #222; display:flex; justify-content:space-between; font-weight:900; font-size:0.9rem;">
-                    <span style="color:${i<3 ? 'var(--sys-gold)' : (i<10 ? 'var(--rank-s)' : '#fff')}">#${i+1} ${u.username} ${u.isAdmin?'👑':''}</span>
-                    <span style="color:#888;">${u.hunterpoints} HuP</span>
+                <div style="padding: 10px; border-bottom: 1px solid #222; display:flex; justify-content:space-between; align-items: center; font-weight:900; font-size:0.9rem;">
+                    <span style="color:${i<3 ? 'var(--sys-gold)' : (i<10 ? 'var(--rank-s)' : '#fff')}">
+                        #${i+1} ${u.username} ${u.isAdmin?'👑':''}
+                    </span>
+                    <span style="color: #666; font-size: 0.8rem; margin-left: auto; margin-right: 20px;">
+                        W: ${u.wins || 0} | L: ${u.losses || 0}
+                    </span>
+                    <span style="color:#888; width: 80px; text-align: right;">${u.hunterpoints} HuP</span>
                 </div>
             `).join('');
         }
