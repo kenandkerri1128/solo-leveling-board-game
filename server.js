@@ -159,9 +159,14 @@ io.on('connection', (socket) => {
             if (old && old.connected) return socket.emit('authError', "ALREADY LOGGED IN.");
         }
         
+        // --- DUPLICATE ACCOUNT PREVENTION ---
         if (data.type === 'signup') {
+            const { data: existing } = await supabase.from('Hunters').select('username').eq('username', data.u).maybeSingle();
+            if(existing) {
+                return socket.emit('authError', "USERNAME TAKEN.");
+            }
             const { error } = await supabase.from('Hunters').insert([{ username: data.u, password: data.p, hunterpoints: 0 }]);
-            if (error) return socket.emit('authError', "USERNAME TAKEN.");
+            if (error) return socket.emit('authError', "CREATION FAILED.");
         }
 
         const { data: user } = await supabase.from('Hunters').select('*').eq('username', data.u).eq('password', data.p).maybeSingle();
@@ -222,7 +227,7 @@ io.on('connection', (socket) => {
         
         rooms[id] = {
             id, name: data.name, isOnline: true, active: false, processing: false,
-            turn: 0, currentRoundMoves: 0, round: 1, spawnCounter: 0, // NEW: Round Tracking
+            turn: 0, currentRoundMoves: 0, round: 1, spawnCounter: 0, 
             survivorTurns: 0, respawnHappened: false,
             players: [{ 
                 id: socket.id, name: data.host, slot: 0, ...CORNERS[0], 
@@ -277,7 +282,7 @@ io.on('connection', (socket) => {
         
         rooms[id] = {
             id, isOnline: false, active: false, processing: false, mode: data.diff,
-            turn: 0, currentRoundMoves: 0, round: 1, spawnCounter: 0, // NEW: Round Tracking
+            turn: 0, currentRoundMoves: 0, round: 1, spawnCounter: 0, 
             survivorTurns: 0, respawnHappened: false,
             players: [
                 { id: socket.id, name: data.user, slot: 0, ...CORNERS[0], mana, rankLabel: getFullRankLabel(mana), alive: true, isAI: false, color: PLAYER_COLORS[0], quit: false, powerUp: null, isAdmin: (data.user === ADMIN_NAME), turnsWithoutBattle: 0, isStunned: false },
@@ -295,6 +300,9 @@ io.on('connection', (socket) => {
     socket.on('activateSkill', (data) => {
         const r = Object.values(rooms).find(rm => rm.players.some(p => p.id === socket.id));
         if(r) {
+            // STRICT SERVER-SIDE VALIDATION
+            if (!r.processing) return; // Must be in battle phase
+
             const p = r.players.find(pl => pl.id === socket.id);
             if(p && p.powerUp === data.powerUp) {
                 p.activeBuff = data.powerUp;
@@ -311,17 +319,17 @@ io.on('connection', (socket) => {
         const p = r.players[r.turn];
         if(!p || p.id !== socket.id) return; // NOT YOUR TURN
 
-        // --- NEW MOVEMENT LOGIC ---
+        // --- STRICT MOVEMENT LOGIC (Player) ---
         const dx = Math.abs(data.tx - p.x);
         const dy = Math.abs(data.ty - p.y);
         
         if (dx === 0 && dy === 0) return; // No move
 
-        // Diagonal Check: Must be exactly 1 tile
         if (dx > 0 && dy > 0) {
+            // Diagonal: Must be exactly 1
             if (dx !== 1 || dy !== 1) return;
         } else {
-            // Cardinal Check: Must be <= Rank Range
+            // Cardinal: Check Rank Range
             const dist = dx + dy;
             if (dist > getMoveRange(p.mana)) return;
         }
@@ -336,7 +344,7 @@ io.on('connection', (socket) => {
 
 
 // =========================================================
-//  THE NEW GAME ENGINE (RANK MOVEMENTS + QUIT LOGIC + SILVER FIX)
+//  THE NEW GAME ENGINE
 // =========================================================
 
 function startGame(room) {
@@ -404,36 +412,30 @@ function resolveBattle(room, attacker, defender, isGate) {
     let cancel = false;
     let autoWin = false;
 
-    // --- NETHER SWAP LOGIC (COMPLEX) ---
-    // Swaps user with a random player, receives MP of loser, teleports.
+    // --- NETHER SWAP LOGIC ---
     let userSwap = null;
-
     if (attacker.activeBuff === 'NETHER SWAP') userSwap = attacker;
     else if (!isGate && defender.activeBuff === 'NETHER SWAP') userSwap = defender;
 
     if (userSwap) {
-        // Find random substitute (Not the user, not the current opponent)
         const candidates = room.players.filter(p => p.alive && p.id !== attacker.id && p.id !== defender.id);
-        
         if (candidates.length > 0) {
-            cancel = true; // Cancel original battle structure
+            cancel = true; 
             const substitute = candidates[Math.floor(Math.random() * candidates.length)];
             
-            // 1. Swap Coords
+            // Swap Coords
             const tx = userSwap.x; const ty = userSwap.y;
             userSwap.x = substitute.x; userSwap.y = substitute.y;
             substitute.x = tx; substitute.y = ty;
             
             io.to(room.id).emit('announcement', `🌀 ${userSwap.name} SWAPPED WITH ${substitute.name}!`);
 
-            // 2. Execute Proxy Battle
+            // Execute Proxy Battle
             let proxyAttacker = (userSwap === attacker) ? substitute : attacker;
             let proxyDefender = (userSwap === defender) ? substitute : defender;
-            
-            // Proxy Battle Logic (Simplified)
             let loserMana = 0;
+
             if (proxyAttacker.mana >= proxyDefender.mana) {
-                // Proxy Attacker Wins
                 proxyAttacker.mana += proxyDefender.mana;
                 loserMana = proxyDefender.mana;
                 if(isGate) {
@@ -443,29 +445,26 @@ function resolveBattle(room, attacker, defender, isGate) {
                      proxyDefender.alive = false;
                 }
             } else {
-                // Proxy Defender Wins
                 loserMana = proxyAttacker.mana;
                 if(!isGate) proxyDefender.mana += proxyAttacker.mana;
                 proxyAttacker.alive = false;
             }
 
-            // 3. User gets Loser MP
+            // User gets Loser MP
             userSwap.mana += loserMana;
             userSwap.activeBuff = null;
             io.to(room.id).emit('announcement', `🌀 ${userSwap.name} ABSORBED ${loserMana} MP FROM THE CHAOS!`);
-
-            // 4. Teleport User to Random Living Player
+            
+            // Teleport User
             const living = room.players.filter(p => p.alive && p.id !== userSwap.id);
             if(living.length > 0) {
                 const target = living[Math.floor(Math.random() * living.length)];
-                userSwap.x = target.x; userSwap.y = target.y; // Teleport to same tile
+                userSwap.x = target.x; userSwap.y = target.y; 
                 io.to(room.id).emit('announcement', `🌀 ${userSwap.name} WARPED TO ${target.name}!`);
             } else {
                 teleport(userSwap);
             }
-
         } else {
-             // Fallback if no players to swap with
              cancel = true;
              teleport(userSwap);
              userSwap.activeBuff = null;
@@ -474,7 +473,7 @@ function resolveBattle(room, attacker, defender, isGate) {
     }
 
     if (!cancel) {
-        // 1. APPLY BUFFS
+        // APPLY BUFFS
         if(attacker.activeBuff === 'DOUBLE DAMAGE') attMana *= 2;
         if(attacker.activeBuff === 'RULERS AUTHORITY' && (!isGate || defender.rank !== 'Silver')) autoWin = true;
         if(attacker.activeBuff === 'GHOST WALK') {
@@ -483,28 +482,22 @@ function resolveBattle(room, attacker, defender, isGate) {
         
         if(!isGate) {
             if(defender.activeBuff === 'DOUBLE DAMAGE') defMana *= 2;
-            if(defender.activeBuff === 'RULERS AUTHORITY') {
-                defMana = 99999999; // Essentially auto-win for defender
-            }
+            if(defender.activeBuff === 'RULERS AUTHORITY') defMana = 99999999; 
             if(defender.activeBuff === 'GHOST WALK') {
                 cancel = true; teleport(defender); io.to(room.id).emit('announcement', `${defender.name} USED GHOST WALK!`);
             }
         }
-
         attacker.activeBuff = null; 
         if(!isGate) defender.activeBuff = null;
     }
 
-    // 2. STANDARD COMBAT RESOLUTION
+    // RESOLVE COMBAT
     if(!cancel) {
         if(autoWin || attMana >= defMana) {
-            // ATTACKER WINS
             attacker.mana += defender.mana;
             if(isGate) {
                 delete room.world[`${attacker.x}-${attacker.y}`];
-                if(defender.rank === 'Silver') {
-                     return handleWin(room, attacker.name); // WIN CONDITION
-                }
+                if(defender.rank === 'Silver') return handleWin(room, attacker.name);
                 if(!attacker.powerUp && Math.random() < 0.2) {
                     attacker.powerUp = POWER_UPS[Math.floor(Math.random() * POWER_UPS.length)];
                     io.to(attacker.id).emit('announcement', `OBTAINED RUNE: ${attacker.powerUp}`);
@@ -513,35 +506,26 @@ function resolveBattle(room, attacker, defender, isGate) {
                 defender.alive = false;
             }
         } else {
-            // DEFENDER WINS
             if(!isGate) defender.mana += attacker.mana;
             attacker.alive = false;
         }
     }
 
     io.to(room.id).emit('battleEnd');
-    
-    // Check Monarch Condition AFTER deaths logic
     checkSilverMonarchCondition(room);
     finishTurn(room);
 }
 
 function checkSilverMonarchCondition(room) {
     if (!room.active) return;
-    
-    // Check if only 1 player alive (Total, implies AI or Human)
     const aliveTotal = room.players.filter(p => p.alive); 
-
-    // Condition: Only 1 person ALIVE
     if (aliveTotal.length === 1) {
         const silverGate = Object.values(room.world).find(g => g.rank === 'Silver');
         if(!silverGate) {
             let sx, sy;
             do { sx=rInt(15); sy=rInt(15); } while(room.players.some(p=>p.x===sx && p.y===sy) || room.world[`${sx}-${sy}`]);
-            
             const smMana = Math.floor(Math.random() * (17000 - 1500 + 1)) + 1500;
             room.world[`${sx}-${sy}`] = { rank: 'Silver', color: '#fff', mana: smMana };
-            
             io.to(room.id).emit('announcement', `SYSTEM: THE SILVER MONARCH [MP:${smMana}] HAS DESCENDED! DEFEAT IT IN 5 TURNS!`);
             room.survivorTurns = 0;
         }
@@ -552,7 +536,7 @@ function finishTurn(room) {
     if(!room.active) return;
     room.processing = false; 
     
-    // Apply AFK Counter to the player who just finished
+    // AFK Counter
     const justPlayed = room.players[room.turn];
     if(justPlayed && justPlayed.alive) {
         justPlayed.turnsWithoutBattle++;
@@ -562,19 +546,16 @@ function finishTurn(room) {
         }
     }
 
-    // --- ROUND TRACKING & SPAWNING ---
+    // Round Tracking
     room.currentRoundMoves++;
     const livingCount = room.players.filter(p => p.alive).length;
     
     if (room.currentRoundMoves >= livingCount) {
-        // Round Finished
         room.currentRoundMoves = 0;
         room.round++;
-        
-        // SPAWN GATES EVERY 3 FULL ROUNDS
         if (room.round % 3 === 0) {
             room.spawnCounter++;
-            const count = 3 + rInt(3); // 3 to 5
+            const count = 3 + rInt(3); 
             for(let i=0; i<count; i++) spawnGate(room);
             broadcastGameState(room);
         }
@@ -583,7 +564,6 @@ function finishTurn(room) {
     const silverGate = Object.values(room.world).find(g => g.rank === 'Silver');
     const alive = room.players.filter(p => p.alive);
     
-    // Silver Monarch Timer (Survivor Turns)
     if (silverGate && alive.length === 1) {
         room.survivorTurns++;
         if (room.survivorTurns >= 5) {
@@ -592,21 +572,17 @@ function finishTurn(room) {
         }
     }
 
-    // Determine Next Turn
+    // Next Turn
     let attempts = 0;
     let validNext = false;
-    
     do {
         room.turn = (room.turn + 1) % room.players.length;
         const nextP = room.players[room.turn];
-        
         if (nextP.alive && !nextP.quit) {
-            // Check Stun Logic
             if(nextP.isStunned) {
                 nextP.isStunned = false;
-                nextP.turnsWithoutBattle = 0; // Reset counter after penalty
+                nextP.turnsWithoutBattle = 0; 
                 io.to(room.id).emit('announcement', `${nextP.name} SKIPS TURN (RECOVERING).`);
-                // Continue loop to skip this player
             } else {
                 validNext = true;
             }
@@ -614,10 +590,8 @@ function finishTurn(room) {
         attempts++;
     } while(!validNext && attempts < 10);
 
-    // If everyone is dead or quit
     const activePlayers = room.players.filter(p => p.alive && !p.quit);
     if (activePlayers.length === 0) {
-        // If everyone died, Respawn
         triggerRespawn(room, null);
         return;
     }
@@ -636,11 +610,9 @@ function runAIMove(room, ai) {
 
     let target = null;
     let minDist = 999;
-    
-    // AI moves based on its rank range too
     const range = getMoveRange(ai.mana);
 
-    // Scan Gates
+    // Scan
     for(const key in room.world) {
         const [gx, gy] = key.split('-').map(Number);
         const g = room.world[key];
@@ -659,32 +631,52 @@ function runAIMove(room, ai) {
 
     let tx = ai.x, ty = ai.y;
     if(target) {
-        // AI Pathfinding 
+        // AI Pathfinding with Strict Movement Rules
         const dx = target.x - ai.x;
         const dy = target.y - ai.y;
         
-        let remaining = range;
-        
-        let moveX = 0;
-        if(dx !== 0) {
-            moveX = (dx > 0) ? Math.min(dx, remaining) : Math.max(dx, -remaining);
-            tx += moveX;
-            remaining -= Math.abs(moveX);
+        // Prioritize Diagonal Step if efficient (Cost: 2 tiles movement for 1 step)
+        if (Math.abs(dx) > 0 && Math.abs(dy) > 0) {
+            tx += (dx > 0 ? 1 : -1);
+            ty += (dy > 0 ? 1 : -1);
+        } else {
+            // Cardinal Move up to Range
+            let remaining = range;
+            if(dx !== 0) {
+                let moveX = (dx > 0) ? Math.min(dx, remaining) : Math.max(dx, -remaining);
+                tx += moveX;
+                remaining -= Math.abs(moveX);
+            }
+            if(dy !== 0 && remaining > 0) {
+                let moveY = (dy > 0) ? Math.min(dy, remaining) : Math.max(dy, -remaining);
+                ty += moveY;
+            }
         }
-        if(dy !== 0 && remaining > 0) {
-            let moveY = (dy > 0) ? Math.min(dy, remaining) : Math.max(dy, -remaining);
-            ty += moveY;
-        }
-
     } else {
-        // Random Move
-        const dir = Math.floor(Math.random()*4);
-        if(dir===0) tx+=1; else if(dir===1) tx-=1; else if(dir===2) ty+=1; else ty-=1;
+        // Random Valid Move
+        const dir = Math.floor(Math.random()*8);
+        if(dir<4) { // Cardinal
+             if(dir===0) tx+=1; else if(dir===1) tx-=1; else if(dir===2) ty+=1; else ty-=1;
+        } else { // Diagonal
+             if(dir===4) { tx+=1; ty+=1; } else if(dir===5) { tx-=1; ty-=1; }
+             else if(dir===6) { tx+=1; ty-=1; } else { tx-=1; ty+=1; }
+        }
     }
 
     // Clamp
     tx = Math.max(0, Math.min(14, tx));
     ty = Math.max(0, Math.min(14, ty));
+
+    // Force Validate AI Move (Self-Check)
+    const adx = Math.abs(tx - ai.x);
+    const ady = Math.abs(ty - ai.y);
+    let valid = false;
+    if (adx > 0 && ady > 0) { if (adx === 1 && ady === 1) valid = true; } // Diag
+    else if ((adx + ady) <= range) valid = true; // Cardinal
+    
+    if(!valid) { // Fallback if AI tries to cheat
+        tx = ai.x; ty = ai.y; // Skip move
+    }
 
     processMove(room, ai, tx, ty);
 }
@@ -693,17 +685,12 @@ function handleWin(room, winnerName) {
     io.to(room.id).emit('victoryEvent', { winner: winnerName });
     room.active = false;
     
-    // UPDATED HUP CALCULATIONS
     const winPoints = room.isOnline ? 20 : 5;
-    
-    // Update Winner
     dbUpdateHunter(winnerName, winPoints, true);
 
-    // Update Losers (Online Only)
     if(room.isOnline) {
         room.players.forEach(p => {
             if(p.name !== winnerName && !p.quit && !p.isAI) {
-                // "losing players (not those who quit but stayed till the end) will lose 5 HuP"
                 dbUpdateHunter(p.name, -5, false);
             }
         });
@@ -713,7 +700,7 @@ function handleWin(room, winnerName) {
 
     setTimeout(() => {
         io.to(room.id).emit('returnToProfile');
-        delete rooms[room.id]; // STRICT DELETION
+        delete rooms[room.id]; 
         syncAllGates();
     }, 6000);
 }
@@ -726,7 +713,7 @@ function handleDisconnect(socket, isQuit) {
             p.quit = true; 
             p.alive = false; 
             
-            // Immediate Penalty (Only if Online PvP)
+            // Immediate Penalty
             if(room.isOnline) {
                 dbUpdateHunter(p.name, -20, false);
                 io.to(room.id).emit('announcement', `${p.name} HAS QUIT (PENALTY -20).`);
@@ -734,32 +721,30 @@ function handleDisconnect(socket, isQuit) {
                 io.to(room.id).emit('announcement', `${p.name} HAS QUIT.`);
             }
             
-            // FORCE LEAVE SOCKET TO PREVENT RE-JOINING SAME ROOM ID
+            // Force Leave
             socket.leave(room.id);
+            // Tell Client to Redirect Immediately
+            socket.emit('returnToProfile'); 
 
-            // --- CHECK FOR WINNER BY DEFAULT (PvP) ---
+            // Check Win Conditions
             const activeHumans = room.players.filter(pl => !pl.quit && !pl.isAI);
             if(room.isOnline && activeHumans.length === 1) {
-                // Last man standing wins immediately
                 handleWin(room, activeHumans[0].name);
                 return;
             }
 
-            // --- END GAME IF SOLO ---
+            // End Solo Game Immediately
             if(!room.isOnline) {
-                io.to(room.id).emit('returnToProfile'); // Force back
-                delete rooms[room.id]; // DESTROY ROOM
+                delete rooms[room.id]; 
                 syncAllGates();
                 return;
             }
 
-            // If game continues, pass turn if it was theirs
             if(p === room.players[room.turn]) finishTurn(room);
         }
         
-        // Cleanup if empty
+        // Cleanup Empty Room
         const connected = room.players.filter(pl => !pl.quit && !pl.isAI); 
-        // If everyone is gone:
         if(isQuit && connected.length === 0) delete rooms[room.id]; 
         
         syncAllGates();
@@ -777,15 +762,12 @@ function triggerRespawn(room, survivorId) {
     room.players.forEach(p => {
         if(!p.quit) {
             p.alive = true;
-            // Reset Stun Counters
             p.turnsWithoutBattle = 0;
             p.isStunned = false;
 
             if(survivorId && p.id !== survivorId) {
-                 // Defeated players respawn with bonus 500-1500 MP
                  p.mana += Math.floor(Math.random() * 1001) + 500;
             }
-            // Survivor retains current MP (no changes)
         }
     });
     
@@ -800,9 +782,8 @@ function spawnGate(room) {
 
     let tiers = [];
     if (room.respawnHappened) {
-        tiers = ['S', 'A']; // High Level Only
+        tiers = ['S', 'A']; 
     } else {
-        // Progressive Difficulty based on spawnCounter
         if (room.spawnCounter <= 3) {
             tiers = ['E', 'D'];
         } else if (room.spawnCounter <= 5) {
