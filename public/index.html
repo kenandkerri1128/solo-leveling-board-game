@@ -310,6 +310,7 @@
         };
 
         function doLogout() {
+            currentGateID = null; // FORCE CLEAR
             sessionStorage.removeItem('hunter_creds');
             sessionStorage.removeItem('last_screen');
             location.reload();
@@ -519,9 +520,16 @@
             transportAnimation(() => { showScreen('screen-game'); });
         });
 
-        function quitAction() { socket.emit('quitGame'); }
+        function quitAction() { 
+            socket.emit('quitGame'); 
+            // CLIENT-SIDE IMMEDIATE EXIT
+            currentGateID = null;
+            document.getElementById('victory-screen').style.display = 'none';
+            showScreen('screen-menu');
+        }
 
         socket.on('returnToProfile', () => {
+            currentGateID = null;
             document.getElementById('victory-screen').style.display = 'none';
             showScreen('screen-menu');
         });
@@ -548,12 +556,19 @@
                  ind.style.color = turnPlayer.color;
             }
 
-            // 3. Power Up UI
+            // 3. Power Up UI (ONLY ACTIVE DURING BATTLE DECLARATION)
             if (me && me.alive && me.powerUp) {
                 const pBtn = document.getElementById('btn-powerup');
-                pBtn.style.display = 'block';
-                pBtn.innerText = `ACTIVATE ${me.powerUp}`;
-                currentHunterPowerUp = me.powerUp; 
+                
+                // Visible ONLY if game is processing (Battle Phase) AND it's My Turn or I am being attacked
+                // Note: Server 'processing' is true during 5s battle window
+                if(state.processing) {
+                     pBtn.style.display = 'block';
+                     pBtn.innerText = `ACTIVATE ${me.powerUp}`;
+                     currentHunterPowerUp = me.powerUp; 
+                } else {
+                     pBtn.style.display = 'none';
+                }
             } else {
                 document.getElementById('btn-powerup').style.display = 'none';
             }
@@ -649,7 +664,7 @@
         socket.on('battleEnd', () => { document.getElementById('vs-panel').style.display = 'none'; });
 
         function usePowerUp() {
-            if (currentHunterPowerUp) {
+            if (currentHunterPowerUp && currentGameState && currentGameState.processing) {
                 socket.emit('activateSkill', { powerUp: currentHunterPowerUp });
                 document.getElementById('btn-powerup').style.display = 'none';
             }
