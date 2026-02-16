@@ -395,12 +395,12 @@ function resolveBattle(room, attacker, defender, isGate) {
                 }
             } else {
                 defender.alive = false;
-                if(!room.isOnline) dbUpdateHunter(defender.name, -1, null);
+                // REMOVED: Immediate -1 penalty on death.
             }
         } else {
             if(!isGate) defender.mana += attacker.mana;
             attacker.alive = false;
-            if(!room.isOnline) dbUpdateHunter(attacker.name, -1, null);
+            // REMOVED: Immediate -1 penalty on death.
         }
     }
 
@@ -487,8 +487,19 @@ function finishTurn(room) {
 function handleWin(room, winnerName) {
     io.to(room.id).emit('victoryEvent', { winner: winnerName });
     room.active = false;
+    
+    // 1. AWARD WINNER
     dbUpdateHunter(winnerName, room.isOnline ? 20 : 5, true);
-    if(room.isOnline) room.players.forEach(p => { if(p.name !== winnerName && !p.quit && !p.isAI) dbUpdateHunter(p.name, -5, false); });
+    
+    // 2. PENALIZE LOSERS (Applied to both AI and PvP modes now)
+    room.players.forEach(p => { 
+        if(p.name !== winnerName && !p.quit && !p.isAI) {
+            // If Online (PvP) -> -5, If AI (Solo) -> -1
+            const penalty = room.isOnline ? -5 : -1;
+            dbUpdateHunter(p.name, penalty, false); 
+        }
+    });
+
     broadcastWorldRankings();
     setTimeout(() => { io.to(room.id).emit('returnToProfile'); delete rooms[room.id]; syncAllGates(); }, 6000);
 }
@@ -512,6 +523,7 @@ function handleDisconnect(socket, isQuit) {
         const p = room.players.find(pl => pl.id === socket.id);
         if(isQuit) {
             p.quit = true; p.alive = false; 
+            // Quit is a forfeit, so this counts as a "Loss Game"
             dbUpdateHunter(p.name, room.isOnline ? -20 : -1, false);
             socket.leave(room.id);
             socket.emit('returnToProfile'); 
