@@ -37,7 +37,7 @@ const RANK_COLORS = {
     'E': '#00ff00', 'D': '#99ff00', 'C': '#ffff00', 'B': '#ff9900', 'A': '#ff00ff', 'S': '#ff0000', 'Silver': '#ffffff' 
 };
 
-const POWER_UPS = ['DOUBLE DAMAGE', 'GHOST WALK', 'NETHER SWAP', 'RULERS AUTHORITY'];
+const POWER_UPS = ['DOUBLE DAMAGE', 'AIR WALK', 'SOUL SWAP', 'RULERS POWER'];
 const CORNERS = [{x:0,y:0}, {x:14,y:0}, {x:0,y:14}, {x:14,y:14}];
 
 // --- DATABASE HELPERS ---
@@ -367,24 +367,24 @@ function resolveBattle(room, attacker, defender, isGate) {
     attacker.turnsWithoutBattle = 0;
     if(!isGate) defender.turnsWithoutBattle = 0;
 
-    // --- NETHER SWAP LOGIC ---
+    // --- SOUL SWAP LOGIC ---
     let battleAttacker = attacker;
     let battleDefender = defender;
     let swapper = null;
 
-    if (attacker.activeBuff === 'NETHER SWAP') swapper = attacker;
-    else if (!isGate && defender.activeBuff === 'NETHER SWAP') swapper = defender;
+    if (attacker.activeBuff === 'SOUL SWAP') swapper = attacker;
+    else if (!isGate && defender.activeBuff === 'SOUL SWAP') swapper = defender;
 
     if (swapper) {
         const victims = room.players.filter(p => p.alive && !p.quit && p.id !== attacker.id && p.id !== defender.id);
         if (victims.length > 0) {
             const victim = victims[Math.floor(Math.random() * victims.length)];
-            io.to(room.id).emit('announcement', `${swapper.name} used NETHER SWAP! Swapping with ${victim.name}!`);
+            io.to(room.id).emit('announcement', `${swapper.name} used SOUL SWAP! Swapping with ${victim.name}!`);
             if (swapper.id === attacker.id) battleAttacker = victim;
             else battleDefender = victim;
             swapper.activeBuff = null;
         } else {
-            io.to(room.id).emit('announcement', `${swapper.name}'s NETHER SWAP failed! No targets.`);
+            io.to(room.id).emit('announcement', `${swapper.name}'s SOUL SWAP failed! No targets.`);
             swapper = null; 
             attacker.activeBuff = null; 
             if(!isGate) defender.activeBuff = null;
@@ -397,13 +397,13 @@ function resolveBattle(room, attacker, defender, isGate) {
     let autoWin = false;
 
     if (battleAttacker.activeBuff === 'DOUBLE DAMAGE') attMana *= 2;
-    if (battleAttacker.activeBuff === 'RULERS AUTHORITY' && (!isGate || battleDefender.rank !== 'Silver')) autoWin = true;
-    if (battleAttacker.activeBuff === 'GHOST WALK') { cancel = true; teleport(battleAttacker); }
+    if (battleAttacker.activeBuff === 'RULERS POWER' && (!isGate || battleDefender.rank !== 'Silver')) autoWin = true;
+    if (battleAttacker.activeBuff === 'AIR WALK') { cancel = true; teleport(battleAttacker); }
     
     if(!isGate) {
         if(battleDefender.activeBuff === 'DOUBLE DAMAGE') defMana *= 2;
-        if(battleDefender.activeBuff === 'RULERS AUTHORITY') defMana = 99999999;
-        if(battleDefender.activeBuff === 'GHOST WALK') { cancel = true; teleport(battleDefender); }
+        if(battleDefender.activeBuff === 'RULERS POWER') defMana = 99999999;
+        if(battleDefender.activeBuff === 'AIR WALK') { cancel = true; teleport(battleDefender); }
     }
     
     if(battleAttacker.id !== (swapper?.id)) battleAttacker.activeBuff = null;
@@ -676,5 +676,6 @@ function broadcastGameState(room) {
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => console.log(`SYSTEM: ONLINE ON PORT ${PORT}`));
+
 
 
