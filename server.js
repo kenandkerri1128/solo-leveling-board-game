@@ -564,21 +564,33 @@ function spawnGate(room) {
 function runAIMove(room, ai) {
     if(!room.active) return;
     
-    // *** FIX: AI PRIORITIZATION (PLAYERS > GATES) ***
     let target = null;
     let minDist = 999;
     const range = getMoveRange(ai.mana);
 
-    // 1. Scan for Killable Players
-    const killableEnemies = room.players.filter(p => p.id !== ai.id && p.alive && ai.mana >= p.mana);
-    if (killableEnemies.length > 0) {
-        killableEnemies.forEach(e => {
-            const dist = Math.abs(ai.x - e.x) + Math.abs(ai.y - e.y);
-            if (dist < minDist) { minDist = dist; target = {x: e.x, y: e.y}; }
-        });
+    // 0. PRIORITY: MONARCH MODE (Last Survivor)
+    // If AI is the only one left, ignore farming and rush the Silver Gate
+    const alivePlayers = room.players.filter(p => p.alive);
+    if (alivePlayers.length === 1 && alivePlayers[0].id === ai.id) {
+        const silverKey = Object.keys(room.world).find(k => room.world[k].rank === 'Silver');
+        if (silverKey) {
+            const [sx, sy] = silverKey.split('-').map(Number);
+            target = { x: sx, y: sy };
+        }
     }
 
-    // 2. If no enemies found, look for Gates
+    // 1. Scan for Killable Players (If NOT in Monarch Mode)
+    if (!target) {
+        const killableEnemies = room.players.filter(p => p.id !== ai.id && p.alive && ai.mana >= p.mana);
+        if (killableEnemies.length > 0) {
+            killableEnemies.forEach(e => {
+                const dist = Math.abs(ai.x - e.x) + Math.abs(ai.y - e.y);
+                if (dist < minDist) { minDist = dist; target = {x: e.x, y: e.y}; }
+            });
+        }
+    }
+
+    // 2. If no enemies and not Monarch Mode, look for Gates
     if (!target) {
         minDist = 999;
         for(const key in room.world) {
