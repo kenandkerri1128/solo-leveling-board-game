@@ -365,108 +365,96 @@ function resolveBattle(room, attacker, defender, isGate) {
     attacker.turnsWithoutBattle = 0;
     if(!isGate) defender.turnsWithoutBattle = 0;
 
-    // --- NETHER SWAP LOGIC START ---
-    let actualAttacker = attacker;
-    let actualDefender = defender;
-    let swapOccurred = false;
+    // --- NETHER SWAP LOGIC ---
+    let battleAttacker = attacker;
+    let battleDefender = defender;
+    let swapper = null;
 
-    // Check if either attacker or defender activated Nether Swap
-    if (attacker.activeBuff === 'NETHER SWAP' || (!isGate && defender.activeBuff === 'NETHER SWAP')) {
-        const swapper = (attacker.activeBuff === 'NETHER SWAP') ? attacker : defender;
-        const opponent = (swapper === attacker) ? defender : attacker;
+    // Check if Nether Swap is active
+    if (attacker.activeBuff === 'NETHER SWAP') swapper = attacker;
+    else if (!isGate && defender.activeBuff === 'NETHER SWAP') swapper = defender;
 
-        // Find a random third player who is alive, not the attacker, and not the defender
-        const candidates = room.players.filter(p => p.alive && p.id !== attacker.id && p.id !== defender.id);
-        
-        if (candidates.length > 0) {
-            const thirdParty = candidates[Math.floor(Math.random() * candidates.length)];
-            
-            // Perform the swap logic
-            io.to(room.id).emit('announcement', `${swapper.name} used NETHER SWAP! ${thirdParty.name} is forced into battle!`);
-            
-            // Set the new combatants for calculation
-            if (swapper === attacker) {
-                actualAttacker = thirdParty; // Third party becomes the new attacker
-                actualDefender = defender;   // Defender stays same
+    if (swapper) {
+        // Find possible victims (Alive, Not in Battle)
+        const victims = room.players.filter(p => p.alive && !p.quit && p.id !== attacker.id && p.id !== defender.id);
+
+        if (victims.length > 0) {
+            // Pick a random victim
+            const victim = victims[Math.floor(Math.random() * victims.length)];
+            io.to(room.id).emit('announcement', `${swapper.name} used NETHER SWAP! Swapping with ${victim.name}!`);
+
+            // Substitute the player in the battle
+            if (swapper.id === attacker.id) {
+                battleAttacker = victim;
             } else {
-                actualAttacker = attacker;   // Attacker stays same
-                actualDefender = thirdParty; // Third party becomes the new defender
+                battleDefender = victim;
             }
             
-            swapOccurred = true;
-            
-            // Clear the buffer from the original user so they don't use it again immediately
-            swapper.activeBuff = null; 
-            
-            // NOTE: The original user (swapper) is now essentially spectating the outcome
-            // They will receive the loser's MP and position AFTER the battle resolves below.
+            // Swapper consumes buff
+            swapper.activeBuff = null;
         } else {
-             io.to(room.id).emit('announcement', `${swapper.name} tried NETHER SWAP but no targets found!`);
+            // FAIL SAFE: No targets available (only 2 players left)
+            io.to(room.id).emit('announcement', `${swapper.name}'s NETHER SWAP failed! No targets available.`);
+            swapper = null; // Revert to normal battle logic
+            attacker.activeBuff = null; // Consume buff to prevent loops
+            if(!isGate) defender.activeBuff = null;
         }
     }
-    // --- NETHER SWAP LOGIC END ---
 
-    let attMana = actualAttacker.mana;
-    let defMana = actualDefender.mana;
+    // --- STANDARD BATTLE LOGIC (Using battleAttacker/battleDefender) ---
+    let attMana = battleAttacker.mana;
+    let defMana = battleDefender.mana;
     let cancel = false;
     let autoWin = false;
 
-    // Standard Buff Logic (Applied to actual combatants)
-    if (actualAttacker.activeBuff === 'DOUBLE DAMAGE') attMana *= 2;
-    if (actualAttacker.activeBuff === 'RULERS AUTHORITY' && (!isGate || actualDefender.rank !== 'Silver')) autoWin = true;
-    if (actualAttacker.activeBuff === 'GHOST WALK') { cancel = true; teleport(actualAttacker); }
+    // Check Buffs for ACTUAL combatants (The Victim, if swapped)
+    if (battleAttacker.activeBuff === 'DOUBLE DAMAGE') attMana *= 2;
+    if (battleAttacker.activeBuff === 'RULERS AUTHORITY' && (!isGate || battleDefender.rank !== 'Silver')) autoWin = true;
+    if (battleAttacker.activeBuff === 'GHOST WALK') { cancel = true; teleport(battleAttacker); }
     
     if(!isGate) {
-        if(actualDefender.activeBuff === 'DOUBLE DAMAGE') defMana *= 2;
-        if(actualDefender.activeBuff === 'RULERS AUTHORITY') defMana = 99999999;
-        if(actualDefender.activeBuff === 'GHOST WALK') { cancel = true; teleport(actualDefender); }
+        if(battleDefender.activeBuff === 'DOUBLE DAMAGE') defMana *= 2;
+        if(battleDefender.activeBuff === 'RULERS AUTHORITY') defMana = 99999999;
+        if(battleDefender.activeBuff === 'GHOST WALK') { cancel = true; teleport(battleDefender); }
     }
     
-    actualAttacker.activeBuff = null; 
-    if(!isGate) actualDefender.activeBuff = null;
+    // Clear buffs for combatants (Swapper cleared above)
+    if(battleAttacker.id !== (swapper?.id)) battleAttacker.activeBuff = null;
+    if(!isGate && battleDefender.id !== (swapper?.id)) battleDefender.activeBuff = null;
+
+    let loser = null;
 
     if(!cancel) {
-        let loser = null;
-        
         if(autoWin || attMana >= defMana) {
             // Attacker Wins
-            actualAttacker.mana += actualDefender.mana;
+            battleAttacker.mana += battleDefender.mana;
             if(isGate) {
-                delete room.world[`${actualAttacker.x}-${actualAttacker.y}`];
-                if(actualDefender.rank === 'Silver') return handleWin(room, actualAttacker.name);
-                if(!actualAttacker.powerUp && Math.random() < 0.2) {
-                    actualAttacker.powerUp = POWER_UPS[Math.floor(Math.random() * POWER_UPS.length)];
-                    io.to(actualAttacker.id).emit('announcement', `OBTAINED RUNE: ${actualAttacker.powerUp}`);
+                delete room.world[`${attacker.x}-${attacker.y}`]; // Use original coords for gate removal
+                if(battleDefender.rank === 'Silver') return handleWin(room, battleAttacker.name);
+                
+                if(!battleAttacker.powerUp && Math.random() < 0.2) {
+                    battleAttacker.powerUp = POWER_UPS[Math.floor(Math.random() * POWER_UPS.length)];
+                    io.to(battleAttacker.id).emit('announcement', `OBTAINED RUNE: ${battleAttacker.powerUp}`);
                 }
             } else {
-                actualDefender.alive = false;
-                loser = actualDefender;
-                // REMOVED: Immediate -1 penalty on death.
+                // Defender Loses
+                battleDefender.alive = false;
+                loser = battleDefender;
             }
         } else {
-            // Defender Wins (Attacker Dies)
-            if(!isGate) actualDefender.mana += actualAttacker.mana;
-            actualAttacker.alive = false;
-            loser = actualAttacker;
-            // REMOVED: Immediate -1 penalty on death.
+            // Defender Wins
+            if(!isGate) battleDefender.mana += battleAttacker.mana;
+            battleAttacker.alive = false;
+            loser = battleAttacker;
         }
+    }
 
-        // --- NETHER SWAP REWARD DISTRIBUTION ---
-        if (swapOccurred && loser) {
-            // Identify the original user of the swap
-            // We know it was either the original attacker or original defender 
-            // (whichever is NOT in the final battle pair of actualAttacker/actualDefender)
-            const originalUser = (attacker !== actualAttacker && attacker !== actualDefender) ? attacker : defender;
-            
-            // 1. Award Loser's MP to User
-            originalUser.mana += loser.mana;
-            
-            // 2. Teleport User to Loser's Block
-            originalUser.x = loser.x;
-            originalUser.y = loser.y;
-            
-            io.to(room.id).emit('announcement', `${originalUser.name} absorbs ${loser.name}'s MP and takes their place!`);
-        }
+    // --- NETHER SWAP REWARD EXECUTION ---
+    if (swapper && loser) {
+        io.to(room.id).emit('announcement', `${swapper.name} reaps the MP of ${loser.name} and teleports!`);
+        swapper.mana += loser.mana; // Award MP
+        swapper.x = loser.x;        // Teleport to loser's block
+        swapper.y = loser.y;
     }
 
     io.to(room.id).emit('battleEnd');
@@ -494,15 +482,7 @@ function finishTurn(room) {
     if(!room.active) return;
     room.processing = false; 
     const justPlayed = room.players[room.turn];
-    
-    // *** FIX: STUNNED MECHANIC IMPLEMENTED HERE ***
-    if(justPlayed && justPlayed.alive) {
-        justPlayed.turnsWithoutBattle++;
-        if (justPlayed.turnsWithoutBattle >= 5 && !justPlayed.isStunned) {
-            justPlayed.isStunned = true;
-            io.to(room.id).emit('announcement', `${justPlayed.name} is EXHAUSTED and STUNNED!`);
-        }
-    }
+    if(justPlayed && justPlayed.alive) justPlayed.turnsWithoutBattle++;
 
     room.currentRoundMoves++;
     const activeList = room.players.filter(p => p.alive);
@@ -527,19 +507,7 @@ function finishTurn(room) {
     do {
         room.turn = (room.turn + 1) % room.players.length;
         const nextP = room.players[room.turn];
-        
-        // Skip dead or quit players
-        if (nextP.alive && !nextP.quit) {
-             // Handle Stunned Skip
-             if (nextP.isStunned) {
-                 nextP.isStunned = false; // Unstun for next time
-                 nextP.turnsWithoutBattle = 0; // Reset counter
-                 io.to(room.id).emit('announcement', `${nextP.name} recovers from STUN.`);
-                 // Loop continues to find next valid player
-             } else {
-                 validNext = true;
-             }
-        }
+        if (nextP.alive && !nextP.quit) validNext = true;
         attempts++;
     } while(!validNext && attempts < 10);
 
@@ -552,19 +520,8 @@ function finishTurn(room) {
 function handleWin(room, winnerName) {
     io.to(room.id).emit('victoryEvent', { winner: winnerName });
     room.active = false;
-    
-    // 1. AWARD WINNER
     dbUpdateHunter(winnerName, room.isOnline ? 20 : 5, true);
-    
-    // 2. PENALIZE LOSERS (Applied to both AI and PvP modes now)
-    room.players.forEach(p => { 
-        if(p.name !== winnerName && !p.quit && !p.isAI) {
-            // If Online (PvP) -> -5, If AI (Solo) -> -1
-            const penalty = room.isOnline ? -5 : -1;
-            dbUpdateHunter(p.name, penalty, false); 
-        }
-    });
-
+    if(room.isOnline) room.players.forEach(p => { if(p.name !== winnerName && !p.quit && !p.isAI) dbUpdateHunter(p.name, -5, false); });
     broadcastWorldRankings();
     setTimeout(() => { io.to(room.id).emit('returnToProfile'); delete rooms[room.id]; syncAllGates(); }, 6000);
 }
@@ -588,7 +545,6 @@ function handleDisconnect(socket, isQuit) {
         const p = room.players.find(pl => pl.id === socket.id);
         if(isQuit) {
             p.quit = true; p.alive = false; 
-            // Quit is a forfeit, so this counts as a "Loss Game"
             dbUpdateHunter(p.name, room.isOnline ? -20 : -1, false);
             socket.leave(room.id);
             socket.emit('returnToProfile'); 
@@ -618,7 +574,8 @@ function triggerRespawn(room, survivorId) {
             p.turnsWithoutBattle = 0;
             p.isStunned = false;
             teleport(p);
-
+            
+            // *** FIX: BONUS MP FOR ALL DEAD (EXCEPT WINNER IF EXISTS) ***
             if (!survivorId || p.id !== survivorId) {
                  p.mana += Math.floor(Math.random() * 1001) + 500;
             }
@@ -640,43 +597,12 @@ function spawnGate(room) {
 
 function runAIMove(room, ai) {
     if(!room.active) return;
-    
-    let target = null;
-    let minDist = 999;
-    const range = getMoveRange(ai.mana);
-
-    // 0. PRIORITY: MONARCH MODE (Last Survivor)
-    // If AI is the only one left, ignore farming and rush the Silver Gate
-    const alivePlayers = room.players.filter(p => p.alive);
-    if (alivePlayers.length === 1 && alivePlayers[0].id === ai.id) {
-        const silverKey = Object.keys(room.world).find(k => room.world[k].rank === 'Silver');
-        if (silverKey) {
-            const [sx, sy] = silverKey.split('-').map(Number);
-            target = { x: sx, y: sy };
-        }
+    let target = null; let minDist = 999; const range = getMoveRange(ai.mana);
+    for(const key in room.world) {
+        const [gx, gy] = key.split('-').map(Number);
+        const dist = Math.abs(ai.x - gx) + Math.abs(ai.y - gy);
+        if(ai.mana >= room.world[key].mana && dist < minDist) { minDist = dist; target = {x:gx, y:gy}; }
     }
-
-    // 1. Scan for Killable Players (If NOT in Monarch Mode)
-    if (!target) {
-        const killableEnemies = room.players.filter(p => p.id !== ai.id && p.alive && ai.mana >= p.mana);
-        if (killableEnemies.length > 0) {
-            killableEnemies.forEach(e => {
-                const dist = Math.abs(ai.x - e.x) + Math.abs(ai.y - e.y);
-                if (dist < minDist) { minDist = dist; target = {x: e.x, y: e.y}; }
-            });
-        }
-    }
-
-    // 2. If no enemies and not Monarch Mode, look for Gates
-    if (!target) {
-        minDist = 999;
-        for(const key in room.world) {
-            const [gx, gy] = key.split('-').map(Number);
-            const dist = Math.abs(ai.x - gx) + Math.abs(ai.y - gy);
-            if(ai.mana >= room.world[key].mana && dist < minDist) { minDist = dist; target = {x:gx, y:gy}; }
-        }
-    }
-
     let tx = ai.x, ty = ai.y;
     if(target) {
         const dx = target.x - ai.x; const dy = target.y - ai.y;
@@ -704,7 +630,7 @@ function broadcastGameState(room) {
                 powerUp: (pl.id===p.id || pl.isAdmin) ? pl.powerUp : null,
                 displayRank: getDisplayRank(pl.mana)
             }));
-            socket.emit('gameStateUpdate', { ...room, players: sanitized, currentBattle: room.currentBattle }); 
+            socket.emit('gameStateUpdate', { ...room, players: sanitized, currentBattle: room.currentBattle }); // Send battle info
         }
     });
 }
