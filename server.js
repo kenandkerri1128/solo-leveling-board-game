@@ -45,8 +45,6 @@ async function dbUpdateHunter(username, points, isWin) {
     try {
         const { data: u } = await supabase.from('Hunters').select('hunterpoints, wins, losses').eq('username', username).maybeSingle();
         if(u) {
-            // Updated to allow negative points if logic demands, but usually we floor at 0. 
-            // Since you want penalties, we allow subtraction.
             const updates = { hunterpoints: Math.max(0, u.hunterpoints + points) };
             if(isWin === true) updates.wins = (u.wins || 0) + 1;
             else if(isWin === false) updates.losses = (u.losses || 0) + 1;
@@ -134,6 +132,27 @@ function syncAllGates() {
 // --- SOCKET LOGIC ---
 io.on('connection', (socket) => {
     
+    // --- ONE TAB PER DEVICE RESTRICTION ---
+    const clientIp = socket.handshake.address;
+    
+    // Check if any other connected socket has the same IP address
+    // Note: 'io.sockets.sockets' is a Map in newer Socket.io versions
+    let alreadyConnected = false;
+    for (const [id, s] of io.sockets.sockets) {
+        if (s.id !== socket.id && s.handshake.address === clientIp) {
+            alreadyConnected = true;
+            break;
+        }
+    }
+
+    if (alreadyConnected) {
+        // Emit error and force disconnect
+        socket.emit('authError', "SYSTEM ALERT: MULTIPLE TABS DETECTED. CONNECTION REFUSED.");
+        socket.disconnect(true);
+        return; 
+    }
+    // --------------------------------------
+
     // 1. ADMIN ACTIONS
     socket.on('adminAction', (data) => {
         if (socket.id !== adminSocketId) return; 
@@ -676,6 +695,3 @@ function broadcastGameState(room) {
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => console.log(`SYSTEM: ONLINE ON PORT ${PORT}`));
-
-
-
