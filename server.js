@@ -134,9 +134,6 @@ io.on('connection', (socket) => {
     
     // --- ONE TAB PER DEVICE RESTRICTION ---
     const clientIp = socket.handshake.address;
-    
-    // Check if any other connected socket has the same IP address
-    // Note: 'io.sockets.sockets' is a Map in newer Socket.io versions
     let alreadyConnected = false;
     for (const [id, s] of io.sockets.sockets) {
         if (s.id !== socket.id && s.handshake.address === clientIp) {
@@ -146,12 +143,10 @@ io.on('connection', (socket) => {
     }
 
     if (alreadyConnected) {
-        // Emit error and force disconnect
         socket.emit('authError', "SYSTEM ALERT: MULTIPLE TABS DETECTED. CONNECTION REFUSED.");
         socket.disconnect(true);
         return; 
     }
-    // --------------------------------------
 
     // 1. ADMIN ACTIONS
     socket.on('adminAction', (data) => {
@@ -243,7 +238,7 @@ io.on('connection', (socket) => {
                 id: socket.id, name: data.host, slot: 0, ...CORNERS[0], 
                 mana, rankLabel: getFullRankLabel(mana), worldRankLabel: wr.label, 
                 alive: true, confirmed: false, color: PLAYER_COLORS[0], isAI: false, quit: false, powerUp: null,
-                isAdmin: (data.host === ADMIN_NAME), turnsWithoutBattle: 0, isStunned: false
+                isAdmin: (data.host === ADMIN_NAME), turnsWithoutBattle: 0, turnsWithoutPvP: 0, isStunned: false, stunDuration: 0
             }],
             world: {}
         };
@@ -264,7 +259,7 @@ io.on('connection', (socket) => {
                 id: socket.id, name: data.user, slot, ...CORNERS[slot],
                 mana, rankLabel: getFullRankLabel(mana), worldRankLabel: wr.label,
                 alive: true, confirmed: false, color: PLAYER_COLORS[slot], isAI: false, quit: false, powerUp: null,
-                isAdmin: (data.user === ADMIN_NAME), turnsWithoutBattle: 0, isStunned: false
+                isAdmin: (data.user === ADMIN_NAME), turnsWithoutBattle: 0, turnsWithoutPvP: 0, isStunned: false, stunDuration: 0
             });
             socket.join(data.gateID);
             io.to(data.gateID).emit('waitingRoomUpdate', r);
@@ -295,10 +290,10 @@ io.on('connection', (socket) => {
             turn: 0, currentRoundMoves: 0, round: 1, spawnCounter: 0, 
             survivorTurns: 0, respawnHappened: false, currentBattle: null,
             players: [
-                { id: socket.id, name: data.user, slot: 0, ...CORNERS[0], mana, rankLabel: getFullRankLabel(mana), alive: true, isAI: false, color: PLAYER_COLORS[0], quit: false, powerUp: null, isAdmin: (data.user === ADMIN_NAME), turnsWithoutBattle: 0, isStunned: false },
-                { id: 'ai1', name: AI_NAMES[1], slot: 1, ...CORNERS[1], mana: 200, rankLabel: "Lower D-Rank", alive: true, isAI: true, color: PLAYER_COLORS[1], quit: false, powerUp: null, turnsWithoutBattle: 0, isStunned: false },
-                { id: 'ai2', name: AI_NAMES[2], slot: 2, ...CORNERS[2], mana: 233, rankLabel: "Higher D-Rank", alive: true, isAI: true, color: PLAYER_COLORS[2], quit: false, powerUp: null, turnsWithoutBattle: 0, isStunned: false },
-                { id: 'ai3', name: AI_NAMES[3], slot: 3, ...CORNERS[3], mana: 200, rankLabel: "Lower D-Rank", alive: true, isAI: true, color: PLAYER_COLORS[3], quit: false, powerUp: null, turnsWithoutBattle: 0, isStunned: false }
+                { id: socket.id, name: data.user, slot: 0, ...CORNERS[0], mana, rankLabel: getFullRankLabel(mana), alive: true, isAI: false, color: PLAYER_COLORS[0], quit: false, powerUp: null, isAdmin: (data.user === ADMIN_NAME), turnsWithoutBattle: 0, turnsWithoutPvP: 0, isStunned: false, stunDuration: 0 },
+                { id: 'ai1', name: AI_NAMES[1], slot: 1, ...CORNERS[1], mana: 200, rankLabel: "Lower D-Rank", alive: true, isAI: true, color: PLAYER_COLORS[1], quit: false, powerUp: null, turnsWithoutBattle: 0, turnsWithoutPvP: 0, isStunned: false, stunDuration: 0 },
+                { id: 'ai2', name: AI_NAMES[2], slot: 2, ...CORNERS[2], mana: 233, rankLabel: "Higher D-Rank", alive: true, isAI: true, color: PLAYER_COLORS[2], quit: false, powerUp: null, turnsWithoutBattle: 0, turnsWithoutPvP: 0, isStunned: false, stunDuration: 0 },
+                { id: 'ai3', name: AI_NAMES[3], slot: 3, ...CORNERS[3], mana: 200, rankLabel: "Lower D-Rank", alive: true, isAI: true, color: PLAYER_COLORS[3], quit: false, powerUp: null, turnsWithoutBattle: 0, turnsWithoutPvP: 0, isStunned: false, stunDuration: 0 }
             ],
             world: {}
         };
@@ -383,8 +378,15 @@ function processMove(room, player, tx, ty) {
 function resolveBattle(room, attacker, defender, isGate) {
     if(!room.active) return;
     room.currentBattle = null;
+    
+    // --- RESET STUN COUNTERS ON BATTLE ---
     attacker.turnsWithoutBattle = 0;
-    if(!isGate) defender.turnsWithoutBattle = 0;
+    if(!isGate) {
+        // PvP Battle
+        attacker.turnsWithoutPvP = 0;
+        defender.turnsWithoutBattle = 0;
+        defender.turnsWithoutPvP = 0;
+    }
 
     // --- SOUL SWAP LOGIC ---
     let battleAttacker = attacker;
@@ -443,13 +445,11 @@ function resolveBattle(room, attacker, defender, isGate) {
             } else {
                 battleDefender.alive = false;
                 loser = battleDefender;
-                // NO PENALTY HERE (Ingame Death)
             }
         } else {
             if(!isGate) battleDefender.mana += battleAttacker.mana;
             battleAttacker.alive = false;
             loser = battleAttacker;
-            // NO PENALTY HERE (Ingame Death)
         }
     }
 
@@ -486,12 +486,22 @@ function finishTurn(room) {
     room.processing = false; 
     const justPlayed = room.players[room.turn];
     
-    // --- STUNNED MECHANIC ---
+    // --- STUNNED MECHANICS (UPDATED) ---
     if(justPlayed && justPlayed.alive) {
         justPlayed.turnsWithoutBattle++;
+        justPlayed.turnsWithoutPvP++;
+
+        // 1. General Stun (No Battle in 5 turns) -> Stun for 1 turn
         if (justPlayed.turnsWithoutBattle >= 5 && !justPlayed.isStunned) {
             justPlayed.isStunned = true;
-            io.to(room.id).emit('announcement', `${justPlayed.name} is EXHAUSTED and STUNNED!`);
+            justPlayed.stunDuration = 1;
+            io.to(room.id).emit('announcement', `${justPlayed.name} is EXHAUSTED (No Battle)! STUNNED for 1 Turn!`);
+        }
+        // 2. PvP Stun (No PvP in 10 turns) -> Stun for 2 turns
+        else if (justPlayed.turnsWithoutPvP >= 10 && !justPlayed.isStunned) {
+            justPlayed.isStunned = true;
+            justPlayed.stunDuration = 2;
+            io.to(room.id).emit('announcement', `${justPlayed.name} is COWARDLY (No PvP)! STUNNED for 2 Turns!`);
         }
     }
 
@@ -520,9 +530,15 @@ function finishTurn(room) {
         const nextP = room.players[room.turn];
         if (nextP.alive && !nextP.quit) {
             if (nextP.isStunned) {
-                 nextP.isStunned = false; 
-                 nextP.turnsWithoutBattle = 0; 
-                 io.to(room.id).emit('announcement', `${nextP.name} recovers from STUN.`);
+                 nextP.stunDuration--;
+                 if (nextP.stunDuration <= 0) {
+                     nextP.isStunned = false; 
+                     nextP.turnsWithoutBattle = 0;
+                     nextP.turnsWithoutPvP = 0; 
+                     io.to(room.id).emit('announcement', `${nextP.name} recovers from STUN.`);
+                 } else {
+                     io.to(room.id).emit('announcement', `${nextP.name} is still STUNNED (${nextP.stunDuration} turns left).`);
+                 }
             } else {
                  validNext = true;
             }
@@ -602,7 +618,9 @@ function triggerRespawn(room, survivorId) {
         if(!p.quit) {
             p.alive = true;
             p.turnsWithoutBattle = 0;
+            p.turnsWithoutPvP = 0;
             p.isStunned = false;
+            p.stunDuration = 0;
             teleport(p);
             if (!survivorId || p.id !== survivorId) {
                  p.mana += Math.floor(Math.random() * 1001) + 500;
