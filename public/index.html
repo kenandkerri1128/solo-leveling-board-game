@@ -51,7 +51,6 @@
         .active { display: flex !important; }
         
         /* --- FIX FOR PC/DESKTOP UI --- */
-        /* Forces the game screen to be Horizontal (Row) on large screens */
         #screen-game {
             flex-direction: row; 
             justify-content: center;
@@ -444,7 +443,19 @@
     </div>
 
     <script>
-        const socket = io();
+        // --- 1. DEVICE FINGERPRINT SYSTEM (CRITICAL FOR ONE TAB RULE) ---
+        // Generates a unique ID for this browser if one doesn't exist
+        let myDeviceId = localStorage.getItem('hunter_device_id');
+        if (!myDeviceId) {
+            myDeviceId = 'dev_' + Math.random().toString(36).substr(2, 9) + '_' + Date.now();
+            localStorage.setItem('hunter_device_id', myDeviceId);
+        }
+
+        // --- 2. SEND DEVICE ID TO SERVER ---
+        const socket = io({
+            query: { deviceId: myDeviceId }
+        });
+
         let myHunter = null;
         let myRoomID = 'global';
         let currentPass = "";
@@ -506,7 +517,14 @@
 
         socket.on('authError', (msg) => { 
             document.getElementById('auth-msg').innerText = msg;
-            if(msg.includes('ALREADY')) { alert(msg); location.reload(); }
+            // Force reload if server detects multiple tabs (System Alert)
+            if(msg.includes('MULTIPLE') || msg.includes('DEVICE')) { 
+                alert(msg); 
+                window.location.href = "about:blank"; // Close the session
+            } else if(msg.includes('ALREADY')) { 
+                alert(msg); 
+                location.reload(); 
+            }
         });
 
         socket.on('authSuccess', (d) => {
@@ -599,8 +617,9 @@
             }, 1500);
         }
 
+        // --- Helper Function for Rank Letter ---
         function getRankLetter(hup) {
-            if (hup >= 1000) return { letter: "S+", color: "var(--rank-s)" }; // Custom S+ logic
+            if (hup >= 1000) return { letter: "S+", color: "var(--rank-s)" }; 
             if (hup >= 901) return { letter: "S", color: "var(--rank-s)" };
             if (hup >= 701) return { letter: "A", color: "var(--rank-a)" };
             if (hup >= 501) return { letter: "B", color: "var(--rank-b)" };
@@ -609,24 +628,32 @@
             return { letter: "E", color: "var(--rank-e)" };
         }
 
+        // --- Updated renderRankings Function ---
         function renderRankings() {
             const el = document.getElementById('world-rank-list');
             el.innerHTML = currentWorldRankings.slice(0, 15).map((u, i) => {
                 const rankData = getRankLetter(u.hunterpoints);
                 return `
-                <div style="padding: 10px; border-bottom: 1px solid #222; display:flex; justify-content:space-between; align-items: center; font-weight:900; font-size:0.9rem;">
-                    <div style="display:flex; flex-direction:column;">
-                        <span style="color:${i<3 ? 'var(--sys-gold)' : '#fff'}">
-                            #${i+1} ${u.username} ${u.isAdmin?'👑':''}
+                <div style="padding: 10px; border-bottom: 1px solid #222; display:flex; justify-content:space-between; align-items: center; font-family: 'Exo 2';">
+                    <div style="display:flex; align-items: center; gap: 8px;">
+                        <span style="color:${i < 3 ? 'var(--sys-gold)' : '#fff'}; font-weight: 900; font-size: 0.9rem;">
+                            #${i + 1} ${u.username} ${u.isAdmin ? '👑' : ''}
                         </span>
-                        <span style="color:${rankData.color}; font-size:0.75rem; font-weight:900;">${rankData.letter}</span>
+                        <span style="color:${rankData.color}; font-weight: 900; font-size: 1rem; border: 1px solid ${rankData.color}; padding: 0 4px; border-radius: 3px; background: rgba(0,0,0,0.5);">
+                            ${rankData.letter}
+                        </span>
                     </div>
-                    <span style="color: #666; font-size: 0.8rem; margin-left: auto; margin-right: 20px;">
-                        W: ${u.wins || 0} | L: ${u.losses || 0}
-                    </span>
-                    <span style="color:#fff; font-weight:900; font-size:1rem; width: 80px; text-align: right;">${u.hunterpoints} HuP</span>
+                    <div style="text-align: right;">
+                        <span style="color: #666; font-size: 0.8rem; margin-right: 15px;">
+                            W: ${u.wins || 0} | L: ${u.losses || 0}
+                        </span>
+                        <span style="color:#fff; font-weight: 900; font-size: 1.1rem; width: 90px; display: inline-block;">
+                            ${u.hunterpoints} HuP
+                        </span>
+                    </div>
                 </div>
-            `;}).join('');
+            `;
+            }).join('');
         }
         socket.on('updateWorldRankings', (l) => { currentWorldRankings = l; renderRankings(); });
 
@@ -798,4 +825,3 @@
     </script>
 </body>
 </html>
-
