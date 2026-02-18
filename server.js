@@ -137,16 +137,13 @@ io.on('connection', (socket) => {
     const deviceId = socket.handshake.query.deviceId;
 
     if (deviceId) {
-        // Check if this device ID is already in our list AND if that socket is actually still connected
         if (connectedDevices[deviceId] && io.sockets.sockets.get(connectedDevices[deviceId])) {
             socket.emit('authError', "SYSTEM: DEVICE BUSY. CLOSE OTHER TABS.");
             socket.disconnect(true);
             return;
         }
-        // Register this device
         connectedDevices[deviceId] = socket.id;
     }
-    // --------------------------------
 
     socket.on('adminAction', (data) => {
         if (socket.id !== adminSocketId) return; 
@@ -238,7 +235,8 @@ io.on('connection', (socket) => {
                 alive: true, confirmed: false, color: PLAYER_COLORS[0], isAI: false, quit: false, powerUp: null,
                 isAdmin: (data.host === ADMIN_NAME), turnsWithoutBattle: 0, turnsWithoutPvP: 0, isStunned: false, stunDuration: 0
             }],
-            world: {}
+            world: {},
+            afkTimer: null 
         };
         socket.join(id);
         io.to(id).emit('waitingRoomUpdate', rooms[id]);
@@ -293,7 +291,8 @@ io.on('connection', (socket) => {
                 { id: 'ai2', name: AI_NAMES[2], slot: 2, ...CORNERS[2], mana: 233, rankLabel: "Higher D-Rank", alive: true, isAI: true, color: PLAYER_COLORS[2], quit: false, powerUp: null, turnsWithoutBattle: 0, turnsWithoutPvP: 0, isStunned: false, stunDuration: 0 },
                 { id: 'ai3', name: AI_NAMES[3], slot: 3, ...CORNERS[3], mana: 200, rankLabel: "Lower D-Rank", alive: true, isAI: true, color: PLAYER_COLORS[3], quit: false, powerUp: null, turnsWithoutBattle: 0, turnsWithoutPvP: 0, isStunned: false, stunDuration: 0 }
             ],
-            world: {}
+            world: {},
+            afkTimer: null 
         };
         socket.join(id);
         startGame(rooms[id]);
@@ -307,6 +306,9 @@ io.on('connection', (socket) => {
                 p.activeBuff = data.powerUp;
                 p.powerUp = null;
                 io.to(r.id).emit('announcement', `${p.name} ACTIVATED ${data.powerUp}!`);
+                
+                // RESET AFK TIMER ON ACTION
+                if (r.afkTimer) { clearTimeout(r.afkTimer); r.afkTimer = null; }
             }
         }
     });
@@ -329,6 +331,9 @@ io.on('connection', (socket) => {
             const dist = dx + dy;
             if (dist > getMoveRange(p.mana)) return;
         }
+
+        // RESET AFK TIMER ON ACTION
+        if (r.afkTimer) { clearTimeout(r.afkTimer); r.afkTimer = null; }
 
         processMove(r, p, data.tx, data.ty);
     });
@@ -484,6 +489,10 @@ function checkSilverMonarchCondition(room) {
 
 function finishTurn(room) {
     if(!room.active) return;
+    
+    // --- CLEAR OLD AFK TIMER ---
+    if (room.afkTimer) { clearTimeout(room.afkTimer); room.afkTimer = null; }
+
     room.processing = false; 
     const justPlayed = room.players[room.turn];
     
@@ -539,6 +548,15 @@ function finishTurn(room) {
                  }
             } else {
                  validNext = true;
+                 
+                 // --- START AFK TIMER IF HUMAN ---
+                 if (!nextP.isAI) {
+                     room.afkTimer = setTimeout(() => {
+                         io.to(room.id).emit('announcement', `SYSTEM: ${nextP.name} WAS CONSUMED BY THE SHADOWS (AFK).`);
+                         const socket = io.sockets.sockets.get(nextP.id);
+                         if (socket) handleDisconnect(socket, true); // True = Quit
+                     }, 180000); // 3 minutes
+                 }
             }
         }
         attempts++;
@@ -553,14 +571,14 @@ function finishTurn(room) {
 function handleWin(room, winnerName) {
     io.to(room.id).emit('victoryEvent', { winner: winnerName });
     room.active = false;
+    if(room.afkTimer) clearTimeout(room.afkTimer);
     
     // WINNER REWARDS: +20 (Online) or +5 (AI)
-    dbUpdateHunter(winnerName, room.isOnline ? 25 : 6, true);
+    dbUpdateHunter(winnerName, room.isOnline ? 20 : 5, true);
     
-    // LOSER PENALTIES
+    // LOSER PENALTIES (Applying -5 to anyone not the winner)
     room.players.forEach(p => { 
         if(p.name !== winnerName && !p.quit && !p.isAI) {
-            // Apply -5 penalty for losing regardless of mode (PvP or Monarch) if you aren't the winner
             dbUpdateHunter(p.name, -5, false); 
         }
     });
@@ -572,6 +590,8 @@ function handleWin(room, winnerName) {
 function handleDisconnect(socket, isQuit) {
     const room = Object.values(rooms).find(r => r.players.some(p => p.id === socket.id));
     if(room) {
+        if(room.afkTimer) clearTimeout(room.afkTimer);
+
         if (!room.active) {
             const index = room.players.findIndex(pl => pl.id === socket.id);
             if (index !== -1) {
@@ -615,6 +635,7 @@ function triggerRespawn(room, survivorId) {
     room.survivorTurns = 0;
     room.currentBattle = null;
     room.processing = false;
+    if(room.afkTimer) clearTimeout(room.afkTimer);
     
     room.players.forEach(p => {
         if(!p.quit) {
@@ -715,4 +736,3 @@ function broadcastGameState(room) {
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => console.log(`SYSTEM: ONLINE ON PORT ${PORT}`));
-
