@@ -25,7 +25,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 // GLOBAL STATE
 let rooms = {};
 let connectedUsers = {}; 
-let connectedDevices = {}; // TRACKS DEVICES
+let connectedDevices = {}; 
 let adminSocketId = null;
 
 // CONSTANTS
@@ -33,7 +33,6 @@ const ADMIN_NAME = "Kei";
 const AI_NAMES = ["Ken Ayag", "P2", "P3", "P4"];
 const PLAYER_COLORS = ['#00d2ff', '#ff3e3e', '#bcff00', '#ff00ff']; 
 
-// COLOR SCHEME
 const RANK_COLORS = { 
     'E': '#00ff00', 'D': '#99ff00', 'C': '#ffff00', 'B': '#ff9900', 'A': '#ff00ff', 'S': '#ff0000', 'Silver': '#ffffff' 
 };
@@ -133,9 +132,8 @@ function syncAllGates() {
 // --- SOCKET LOGIC ---
 io.on('connection', (socket) => {
     
-    // --- 1. DEVICE LOCK (STRICT) ---
+    // --- DEVICE LOCK ---
     const deviceId = socket.handshake.query.deviceId;
-
     if (deviceId) {
         if (connectedDevices[deviceId] && io.sockets.sockets.get(connectedDevices[deviceId])) {
             socket.emit('authError', "SYSTEM: DEVICE BUSY. CLOSE OTHER TABS.");
@@ -147,14 +145,48 @@ io.on('connection', (socket) => {
 
     socket.on('adminAction', (data) => {
         if (socket.id !== adminSocketId) return; 
+        
+        // 1. KICK LOGIC
         if (data.action === 'kick' && connectedUsers[data.target]) {
             const tid = connectedUsers[data.target];
             io.to(tid).emit('authError', "SYSTEM: KICKED BY ADMIN.");
             io.sockets.sockets.get(tid)?.disconnect(true);
             delete connectedUsers[data.target];
         }
+        
+        // 2. BROADCAST LOGIC
         if (data.action === 'broadcast') {
             io.emit('receiveMessage', { sender: 'SYSTEM ADMIN', text: data.message, rank: 'ADMIN', timestamp: new Date().toLocaleTimeString(), isAdmin: true });
+        }
+
+        // 3. SEARCH & SPECTATE LOGIC (NEW)
+        if (data.action === 'search') {
+            const targetName = data.target;
+            let found = false;
+            
+            // Iterate all active rooms to find the player
+            for (const roomId in rooms) {
+                const r = rooms[roomId];
+                const player = r.players.find(p => p.name === targetName);
+                
+                if (player) {
+                    found = true;
+                    // Prepare data for Admin: Mask Powerups as '?'
+                    const adminViewPlayers = r.players.map(p => ({
+                        ...p,
+                        powerUp: (p.powerUp ? '?' : null) // Show '?' if they have a powerup, else null
+                    }));
+
+                    socket.emit('adminSearchResponse', {
+                        found: true,
+                        roomId: r.id,
+                        roomName: r.name,
+                        players: adminViewPlayers
+                    });
+                    break;
+                }
+            }
+            if (!found) socket.emit('adminSearchResponse', { found: false, message: "PLAYER NOT IN A MATCH" });
         }
     });
 
@@ -200,6 +232,10 @@ io.on('connection', (socket) => {
                 wins: user.wins||0, losses: user.losses||0, worldRank: (count||0)+1,
                 isAdmin: (user.username === ADMIN_NAME), music: reconnected ? null : 'menu.mp3'
             });
+            
+            // Auto-join Profile Chat room on login
+            socket.join('profile_page');
+            
             if(!reconnected) { syncAllGates(); broadcastWorldRankings(); }
         } else {
             socket.emit('authError', "INVALID CREDENTIALS.");
@@ -207,14 +243,23 @@ io.on('connection', (socket) => {
     });
 
     socket.on('joinChatRoom', (rid) => { 
+        // Leave previous rooms (keeps strict isolation)
         socket.rooms.forEach(r => { if(r !== socket.id) socket.leave(r); });
+        // Join new room
         if(rid) socket.join(rid);
     });
     
     socket.on('sendMessage', (data) => {
         const payload = { sender: data.senderName, text: data.message, rank: data.rank, timestamp: new Date().toLocaleTimeString(), isAdmin: (data.senderName === ADMIN_NAME) };
-        if(!data.roomId || data.roomId === 'global') io.emit('receiveMessage', payload);
-        else io.to(data.roomId).emit('receiveMessage', payload);
+        
+        // --- STRICT CHAT ISOLATION LOGIC ---
+        if (data.senderName === ADMIN_NAME && data.roomId === 'global') {
+            // Only Admin can speak to everyone
+            io.emit('receiveMessage', payload);
+        } else {
+            // Normal players only speak to their current room
+            io.to(data.roomId).emit('receiveMessage', payload);
+        }
     });
 
     socket.on('requestGateList', syncAllGates);
@@ -306,8 +351,6 @@ io.on('connection', (socket) => {
                 p.activeBuff = data.powerUp;
                 p.powerUp = null;
                 io.to(r.id).emit('announcement', `${p.name} ACTIVATED ${data.powerUp}!`);
-
-                // RESET AFK TIMER ON ACTION
                 if (r.afkTimer) { clearTimeout(r.afkTimer); r.afkTimer = null; }
             }
         }
@@ -332,9 +375,7 @@ io.on('connection', (socket) => {
             if (dist > getMoveRange(p.mana)) return;
         }
 
-        // RESET AFK TIMER ON ACTION
         if (r.afkTimer) { clearTimeout(r.afkTimer); r.afkTimer = null; }
-
         processMove(r, p, data.tx, data.ty);
     });
 
@@ -541,19 +582,19 @@ function finishTurn(room) {
                      nextP.turnsWithoutBattle = 0;
                      nextP.turnsWithoutPvP = 0; 
                      io.to(room.id).emit('announcement', `${nextP.name} recovers from STUN.`);
+                     validNext = true; 
                  } else {
                      io.to(room.id).emit('announcement', `${nextP.name} is still STUNNED (${nextP.stunDuration} turns left).`);
                  }
             } else {
                  validNext = true;
 
-                 // --- START AFK TIMER IF HUMAN ---
                  if (!nextP.isAI) {
                      room.afkTimer = setTimeout(() => {
                          io.to(room.id).emit('announcement', `SYSTEM: ${nextP.name} WAS CONSUMED BY THE SHADOWS (AFK).`);
                          const afkSocket = io.sockets.sockets.get(nextP.id);
                          if (afkSocket) handleDisconnect(afkSocket, true); 
-                     }, 180000); // 3 Minutes
+                     }, 180000); 
                  }
             }
         }
@@ -631,6 +672,7 @@ function triggerRespawn(room, survivorId) {
     room.processing = false;
     if(room.afkTimer) clearTimeout(room.afkTimer);
     
+    let revivers = 0;
     room.players.forEach(p => {
         if(!p.quit) {
             p.alive = true;
@@ -642,8 +684,14 @@ function triggerRespawn(room, survivorId) {
             if (!survivorId || p.id !== survivorId) {
                  p.mana += Math.floor(Math.random() * 1001) + 500;
             }
+            revivers++;
         }
     });
+    
+    if (revivers === 0) {
+        delete rooms[room.id];
+        return;
+    }
     
     for(let i=0; i<5; i++) spawnGate(room);
     finishTurn(room);
@@ -691,7 +739,12 @@ function runAIMove(room, ai) {
     let tx = ai.x, ty = ai.y;
     if(target) {
         const dx = target.x - ai.x; const dy = target.y - ai.y;
-        if (Math.abs(dx) > 0 && Math.abs(dy) > 0) { tx += (dx > 0 ? 1 : -1); ty += (dy > 0 ? 1 : -1); }
+        if (Math.abs(dx) > 0 && Math.abs(dy) > 0) { 
+            let maxSteps = Math.max(1, Math.floor(range / 2));
+            let steps = Math.min(Math.abs(dx), Math.abs(dy), maxSteps);
+            tx += (dx > 0 ? steps : -steps);
+            ty += (dy > 0 ? steps : -steps);
+        }
         else {
             let rem = range;
             if(dx !== 0) { let mx = (dx > 0) ? Math.min(dx, rem) : Math.max(dx, -rem); tx += mx; rem -= Math.abs(mx); }
@@ -723,4 +776,3 @@ function broadcastGameState(room) {
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => console.log(`SYSTEM: ONLINE ON PORT ${PORT}`));
-
