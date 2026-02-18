@@ -159,12 +159,11 @@ io.on('connection', (socket) => {
             io.emit('receiveMessage', { sender: 'SYSTEM ADMIN', text: data.message, rank: 'ADMIN', timestamp: new Date().toLocaleTimeString(), isAdmin: true });
         }
 
-        // 3. SEARCH & SPECTATE LOGIC (NEW)
+        // 3. SEARCH & SPECTATE LOGIC
         if (data.action === 'search') {
             const targetName = data.target;
             let found = false;
             
-            // Iterate all active rooms to find the player
             for (const roomId in rooms) {
                 const r = rooms[roomId];
                 const player = r.players.find(p => p.name === targetName);
@@ -174,7 +173,7 @@ io.on('connection', (socket) => {
                     // Prepare data for Admin: Mask Powerups as '?'
                     const adminViewPlayers = r.players.map(p => ({
                         ...p,
-                        powerUp: (p.powerUp ? '?' : null) // Show '?' if they have a powerup, else null
+                        powerUp: (p.powerUp ? '?' : null) 
                     }));
 
                     socket.emit('adminSearchResponse', {
@@ -233,7 +232,6 @@ io.on('connection', (socket) => {
                 isAdmin: (user.username === ADMIN_NAME), music: reconnected ? null : 'menu.mp3'
             });
             
-            // Auto-join Profile Chat room on login
             socket.join('profile_page');
             
             if(!reconnected) { syncAllGates(); broadcastWorldRankings(); }
@@ -243,21 +241,24 @@ io.on('connection', (socket) => {
     });
 
     socket.on('joinChatRoom', (rid) => { 
-        // Leave previous rooms (keeps strict isolation)
         socket.rooms.forEach(r => { if(r !== socket.id) socket.leave(r); });
-        // Join new room
         if(rid) socket.join(rid);
     });
     
+    // --- SPECTATE JOIN (New) ---
+    socket.on('spectateRoom', (roomId) => {
+        if (rooms[roomId]) {
+            socket.join(roomId);
+            socket.emit('gameStart', { roomId: roomId });
+            broadcastGameState(rooms[roomId]); 
+        }
+    });
+
     socket.on('sendMessage', (data) => {
         const payload = { sender: data.senderName, text: data.message, rank: data.rank, timestamp: new Date().toLocaleTimeString(), isAdmin: (data.senderName === ADMIN_NAME) };
-        
-        // --- STRICT CHAT ISOLATION LOGIC ---
         if (data.senderName === ADMIN_NAME && data.roomId === 'global') {
-            // Only Admin can speak to everyone
             io.emit('receiveMessage', payload);
         } else {
-            // Normal players only speak to their current room
             io.to(data.roomId).emit('receiveMessage', payload);
         }
     });
@@ -760,13 +761,20 @@ function rInt(max) { return Math.floor(Math.random() * max); }
 
 function broadcastGameState(room) {
     const { afkTimer, ...roomState } = room; 
+    
+    // --- MANA VISIBILITY LOGIC ---
     room.players.forEach(p => {
         const socket = io.sockets.sockets.get(p.id);
         if(socket) {
+            // Determine if the receiving socket is the Admin
+            const isSocketAdmin = (p.isAdmin || socket.id === adminSocketId);
+
             const sanitized = room.players.map(pl => ({
                 ...pl,
-                mana: (pl.id===p.id || pl.isAdmin) ? pl.mana : null,
-                powerUp: (pl.id===p.id || pl.isAdmin) ? pl.powerUp : null,
+                // --- ADMIN SEES ALL MP | USER SEES ONLY THEIR OWN ---
+                mana: (pl.id===p.id || isSocketAdmin) ? pl.mana : null,
+                
+                powerUp: (pl.id===p.id || isSocketAdmin) ? pl.powerUp : null,
                 displayRank: getDisplayRank(pl.mana)
             }));
             socket.emit('gameStateUpdate', { ...roomState, players: sanitized, currentBattle: room.currentBattle }); 
