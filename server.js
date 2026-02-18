@@ -30,7 +30,7 @@ let adminSocketId = null;
 
 // CONSTANTS
 const ADMIN_NAME = "Kei"; 
-const AI_NAMES = ["Ken Ayag", "Elton Bosch", "Jordan Comighod", "Jermaine Etcuban"];
+const AI_NAMES = ["Ken Ayag", "P2", "P3", "P4"];
 const PLAYER_COLORS = ['#00d2ff', '#ff3e3e', '#bcff00', '#ff00ff']; 
 
 // COLOR SCHEME
@@ -694,4 +694,5 @@ function broadcastGameState(room) {
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => console.log(`SYSTEM: ONLINE ON PORT ${PORT}`));
+
 
