@@ -555,7 +555,7 @@ function handleWin(room, winnerName) {
     room.active = false;
     
     // WINNER REWARDS: +20 (Online) or +5 (AI)
-    dbUpdateHunter(winnerName, room.isOnline ? 20 : 5, true);
+    dbUpdateHunter(winnerName, room.isOnline ? 25 : 6, true);
     
     // LOSER PENALTIES
     room.players.forEach(p => { 
@@ -715,3 +715,4 @@ function broadcastGameState(room) {
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => console.log(`SYSTEM: ONLINE ON PORT ${PORT}`));
+
