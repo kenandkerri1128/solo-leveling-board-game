@@ -711,6 +711,7 @@ function spawnGate(room) {
     room.world[`${sx}-${sy}`] = { rank, color: RANK_COLORS[rank], mana: rInt(range[1]-range[0]) + range[0] };
 }
 
+// --- UPDATED AI MOVEMENT (STRICT RULES) ---
 function runAIMove(room, ai) {
     if(!room.active) return;
     let target = null;
@@ -747,17 +748,30 @@ function runAIMove(room, ai) {
 
     let tx = ai.x, ty = ai.y;
     if(target) {
-        const dx = target.x - ai.x; const dy = target.y - ai.y;
-        if (Math.abs(dx) > 0 && Math.abs(dy) > 0) { 
-            let maxSteps = Math.max(1, Math.floor(range / 2));
-            let steps = Math.min(Math.abs(dx), Math.abs(dy), maxSteps);
-            tx += (dx > 0 ? steps : -steps);
-            ty += (dy > 0 ? steps : -steps);
-        }
+        const dx = target.x - ai.x; 
+        const dy = target.y - ai.y;
+        
+        // --- STRICT PLAYER MOVEMENT LOGIC (ZIG-ZAG) ---
+        // Players can only move 1 step diagonally. To cross distance, they use Cardinal moves.
+        // We prioritize the axis with the larger distance.
+        
+        // 1. If we are perfectly diagonal and 1 step away, take the 1 allowed diagonal step
+        if (Math.abs(dx) === 1 && Math.abs(dy) === 1) {
+             tx += dx;
+             ty += dy;
+        } 
         else {
-            let rem = range;
-            if(dx !== 0) { let mx = (dx > 0) ? Math.min(dx, rem) : Math.max(dx, -rem); tx += mx; rem -= Math.abs(mx); }
-            if(dy !== 0 && rem > 0) { let my = (dy > 0) ? Math.min(dy, rem) : Math.max(dy, -rem); ty += my; }
+            // 2. Cardinal Movement (Zig-Zag approach)
+            // Move along X axis first if X distance is greater
+            if (Math.abs(dx) >= Math.abs(dy)) {
+                let stepX = (dx > 0) ? Math.min(dx, range) : Math.max(dx, -range);
+                tx += stepX;
+            } 
+            // Move along Y axis first
+            else {
+                let stepY = (dy > 0) ? Math.min(dy, range) : Math.max(dy, -range);
+                ty += stepY;
+            }
         }
     } else {
         // Random move if no target
@@ -767,7 +781,6 @@ function runAIMove(room, ai) {
 
     // --- AI POWER UP USAGE ---
     if (ai.powerUp) {
-        // Check if next move triggers battle
         const enemy = room.players.find(p => p.alive && p.x === tx && p.y === ty && p.id !== ai.id);
         const gate = room.world[`${tx}-${ty}`];
 
@@ -793,17 +806,25 @@ function teleport(p) { p.x = rInt(15); p.y = rInt(15); }
 function rInt(max) { return Math.floor(Math.random() * max); }
 
 async function broadcastGameState(room) {
-    const { afkTimer, ...roomState } = room;
+    const { afkTimer, ...roomState } = room; 
+    
+    // FETCH ALL SOCKETS IN ROOM (Includes Players AND Spectating Admin)
     const sockets = await io.in(room.id).fetchSockets();
 
     for (const socket of sockets) {
         const isSocketAdmin = (socket.id === adminSocketId);
+        
         const sanitized = room.players.map(pl => ({
             ...pl,
+            // Admin sees EVERYONE'S Mana. Player sees only THEIR OWN.
             mana: (pl.id === socket.id || isSocketAdmin) ? pl.mana : null,
+            
+            // Admin sees '?' if powerup exists. Player sees their own actual powerup.
             powerUp: (pl.id === socket.id) ? pl.powerUp : (isSocketAdmin && pl.powerUp ? '?' : null),
+            
             displayRank: getDisplayRank(pl.mana)
         }));
+
         socket.emit('gameStateUpdate', { ...roomState, players: sanitized, currentBattle: room.currentBattle });
     }
 }
