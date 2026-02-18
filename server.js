@@ -146,11 +146,19 @@ io.on('connection', (socket) => {
     socket.on('adminAction', (data) => {
         if (socket.id !== adminSocketId) return; 
         
-        // 1. KICK LOGIC
+        // 1. KICK LOGIC (FIXED)
         if (data.action === 'kick' && connectedUsers[data.target]) {
             const tid = connectedUsers[data.target];
-            io.to(tid).emit('authError', "SYSTEM: KICKED BY ADMIN.");
-            io.sockets.sockets.get(tid)?.disconnect(true);
+            const targetSocket = io.sockets.sockets.get(tid);
+            
+            if (targetSocket) {
+                // Apply Quit Penalty & Logic first
+                handleDisconnect(targetSocket, true); 
+                // Send specific Kicked Screen signal
+                targetSocket.emit('forceKick');
+                // Finally Disconnect
+                targetSocket.disconnect(true);
+            }
             delete connectedUsers[data.target];
         }
         
@@ -170,7 +178,6 @@ io.on('connection', (socket) => {
                 
                 if (player) {
                     found = true;
-                    // Prepare data for Admin: Mask Powerups as '?'
                     const adminViewPlayers = r.players.map(p => ({
                         ...p,
                         powerUp: (p.powerUp ? '?' : null) 
@@ -245,11 +252,12 @@ io.on('connection', (socket) => {
         if(rid) socket.join(rid);
     });
     
-    // --- SPECTATE JOIN (New) ---
+    // --- SPECTATE JOIN ---
     socket.on('spectateRoom', (roomId) => {
         if (rooms[roomId]) {
             socket.join(roomId);
             socket.emit('gameStart', { roomId: roomId });
+            // FORCE IMMEDIATE UPDATE FOR SPECTATOR
             broadcastGameState(rooms[roomId]); 
         }
     });
@@ -759,27 +767,32 @@ function runAIMove(room, ai) {
 function teleport(p) { p.x = rInt(15); p.y = rInt(15); }
 function rInt(max) { return Math.floor(Math.random() * max); }
 
-function broadcastGameState(room) {
-    const { afkTimer, ...roomState } = room; 
+// --- FIXED: SPECTATOR & ADMIN VISIBILITY LOGIC ---
+async function broadcastGameState(room) {
+    const { afkTimer, ...roomState } = room;
     
-    // --- MANA VISIBILITY LOGIC ---
-    room.players.forEach(p => {
-        const socket = io.sockets.sockets.get(p.id);
-        if(socket) {
-            // Determine if the receiving socket is the Admin
-            const isSocketAdmin = (p.isAdmin || socket.id === adminSocketId);
+    // FETCH ALL SOCKETS IN ROOM (Includes Players AND Spectating Admin)
+    const sockets = await io.in(room.id).fetchSockets();
 
-            const sanitized = room.players.map(pl => ({
-                ...pl,
-                // --- ADMIN SEES ALL MP | USER SEES ONLY THEIR OWN ---
-                mana: (pl.id===p.id || isSocketAdmin) ? pl.mana : null,
-                
-                powerUp: (pl.id===p.id || isSocketAdmin) ? pl.powerUp : null,
-                displayRank: getDisplayRank(pl.mana)
-            }));
-            socket.emit('gameStateUpdate', { ...roomState, players: sanitized, currentBattle: room.currentBattle }); 
-        }
-    });
+    for (const socket of sockets) {
+        const isSocketAdmin = (socket.id === adminSocketId);
+        
+        // Is this socket actually one of the players?
+        const mePlayer = room.players.find(p => p.id === socket.id);
+
+        const sanitized = room.players.map(pl => ({
+            ...pl,
+            // Admin sees EVERYONE'S Mana. Player sees only THEIR OWN.
+            mana: (pl.id === socket.id || isSocketAdmin) ? pl.mana : null,
+            
+            // Admin sees '?' if powerup exists. Player sees their own actual powerup.
+            powerUp: (pl.id === socket.id) ? pl.powerUp : (isSocketAdmin && pl.powerUp ? '?' : null),
+            
+            displayRank: getDisplayRank(pl.mana)
+        }));
+
+        socket.emit('gameStateUpdate', { ...roomState, players: sanitized, currentBattle: room.currentBattle });
+    }
 }
 
 const PORT = process.env.PORT || 3000;
