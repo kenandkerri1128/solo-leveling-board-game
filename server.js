@@ -188,12 +188,13 @@ io.on('connection', (socket) => {
             if (!found) socket.emit('adminSearchResponse', { found: false, message: "PLAYER NOT IN A MATCH" });
         }
 
-        // DEV TOOL: GRANT ITEMS
+        // --- UPDATED: DEV TOOL TO GRANT ANY FILENAME ---
         if (data.action === 'grantItem') {
             try {
                 const { data: u } = await supabase.from('Hunters').select('inventory').eq('username', data.target).single();
                 if (u) {
                     let inv = u.inventory || [];
+                    // data.item will look like "skin:premium.png"
                     if (!inv.includes(data.item)) {
                         inv.push(data.item);
                         await supabase.from('Hunters').update({ inventory: inv }).eq('username', data.target);
@@ -203,7 +204,10 @@ io.on('connection', (socket) => {
                         if (targetSocketId) {
                             const { data: freshUser } = await supabase.from('Hunters').select('inventory, active_cosmetics').eq('username', data.target).single();
                             io.to(targetSocketId).emit('inventoryUpdate', { inventory: freshUser.inventory, activeCosmetics: freshUser.active_cosmetics });
-                            io.to(targetSocketId).emit('announcement', `SYSTEM: YOU RECEIVED A NEW ITEM - ${data.item}`);
+                            
+                            // Get just the filename for the display alert
+                            const displayName = data.item.split(':')[1];
+                            io.to(targetSocketId).emit('announcement', `SYSTEM: YOU RECEIVED A NEW ITEM - ${displayName}`);
                         }
                     }
                 }
@@ -263,13 +267,18 @@ io.on('connection', (socket) => {
         }
     });
 
+    // --- UPDATED: EQUIP ITEM PARSING ---
     socket.on('equipItem', async (data) => {
         try {
             const { data: user } = await supabase.from('Hunters').select('inventory, active_cosmetics').eq('username', data.username).single();
-            if (user && (user.inventory || []).includes(data.item)) {
+            
+            // Reconstruct the DB formatted string (e.g. "skin:premium.png")
+            const invString = `${data.type}:${data.item}`;
+            
+            if (user && (user.inventory || []).includes(invString)) {
                 let cosmetics = user.active_cosmetics || {};
                 
-                // Toggle logic (unequip if already equipped)
+                // Toggle logic
                 if (cosmetics[data.type] === data.item) cosmetics[data.type] = null;
                 else cosmetics[data.type] = data.item;
 
@@ -282,7 +291,7 @@ io.on('connection', (socket) => {
                     const player = r.players.find(p => p.name === data.username);
                     if (player) {
                         player.skin = cosmetics.skin || null;
-                        if (r.players[0].name === data.username) r.hostCosmetics = cosmetics; // Update board if host
+                        if (r.players[0].name === data.username) r.hostCosmetics = cosmetics; 
                         broadcastGameState(r);
                     }
                 }
@@ -321,7 +330,7 @@ io.on('connection', (socket) => {
             id, name: data.name, isOnline: true, active: false, processing: false,
             turn: 0, currentRoundMoves: 0, round: 1, spawnCounter: 0, 
             survivorTurns: 0, respawnHappened: false, currentBattle: null,
-            hostCosmetics: data.cosmetics || {}, // Bind custom maps to host
+            hostCosmetics: data.cosmetics || {}, 
             players: [{ 
                 id: socket.id, name: data.host, slot: 0, ...CORNERS[0], 
                 mana, rankLabel: getFullRankLabel(mana), worldRankLabel: wr.label, 
