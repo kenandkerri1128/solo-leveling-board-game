@@ -143,20 +143,15 @@ function syncAllMonoliths() {
     io.emit('updateGateList', list); 
 }
 
-// --- MASTER INVENTORY GENERATOR ---
-function getMasterInventory(userOwnedItems) {
-    const masterItems = [];
-    const ownedSet = new Set(userOwnedItems || []);
-
+// --- NEW FUNCTION: GRAB EVERY ITEM IN THE GAME ---
+function getAllVaultItems() {
+    const items = [];
     const skinDir = path.join(__dirname, 'public', 'uploads', 'skins');
     if (fs.existsSync(skinDir)) {
         fs.readdirSync(skinDir).forEach(f => {
             if(f.endsWith('.png') || f.endsWith('.jpg') || f.endsWith('.jpeg')) {
-                if (f.startsWith('char_')) {
-                    masterItems.push({ type: 'skin', item: f, isUnlocked: ownedSet.has(`skin:${f}`) });
-                } else if (f.startsWith('eagle_')) {
-                    masterItems.push({ type: 'eagle', item: f, isUnlocked: ownedSet.has(`eagle:${f}`) });
-                }
+                if (f.startsWith('char_')) items.push(`skin:${f}`);
+                else if (f.startsWith('eagle_')) items.push(`eagle:${f}`);
             }
         });
     }
@@ -164,24 +159,18 @@ function getMasterInventory(userOwnedItems) {
     const bgDir = path.join(__dirname, 'public', 'uploads', 'bg');
     if (fs.existsSync(bgDir)) {
         fs.readdirSync(bgDir).forEach(f => {
-            if(f.endsWith('.png') || f.endsWith('.jpg') || f.endsWith('.jpeg')) {
-                masterItems.push({ type: 'bg', item: f, isUnlocked: ownedSet.has(`bg:${f}`) });
-            }
+            if(f.endsWith('.png') || f.endsWith('.jpg') || f.endsWith('.jpeg')) items.push(`bg:${f}`);
         });
     }
 
     const musicDir = path.join(__dirname, 'public', 'uploads', 'music');
     if (fs.existsSync(musicDir)) {
         fs.readdirSync(musicDir).forEach(f => {
-            if(f.endsWith('.mp3') || f.endsWith('.wav')) {
-                masterItems.push({ type: 'music', item: f, isUnlocked: ownedSet.has(`music:${f}`) });
-            }
+            if(f.endsWith('.mp3') || f.endsWith('.wav')) items.push(`music:${f}`);
         });
     }
-
-    return masterItems;
+    return items;
 }
-
 
 // --- SOCKET LOGIC ---
 io.on('connection', (socket) => {
@@ -198,34 +187,7 @@ io.on('connection', (socket) => {
 
     socket.on('requestAdminVault', () => {
         if (socket.id !== adminSocketId) return;
-        const items = [];
-        
-        // ADMIN VAULT STILL GETS SIMPLE STRINGS FOR GRANTING
-        const skinDir = path.join(__dirname, 'public', 'uploads', 'skins');
-        if (fs.existsSync(skinDir)) {
-            fs.readdirSync(skinDir).forEach(f => {
-                if(f.endsWith('.png') || f.endsWith('.jpg') || f.endsWith('.jpeg')) {
-                    if (f.startsWith('char_')) items.push(`skin:${f}`);
-                    else if (f.startsWith('eagle_')) items.push(`eagle:${f}`);
-                }
-            });
-        }
-        
-        const bgDir = path.join(__dirname, 'public', 'uploads', 'bg');
-        if (fs.existsSync(bgDir)) {
-            fs.readdirSync(bgDir).forEach(f => {
-                if(f.endsWith('.png') || f.endsWith('.jpg') || f.endsWith('.jpeg')) items.push(`bg:${f}`);
-            });
-        }
-
-        const musicDir = path.join(__dirname, 'public', 'uploads', 'music');
-        if (fs.existsSync(musicDir)) {
-            fs.readdirSync(musicDir).forEach(f => {
-                if(f.endsWith('.mp3') || f.endsWith('.wav')) items.push(`music:${f}`);
-            });
-        }
-        
-        socket.emit('adminVaultData', items);
+        socket.emit('adminVaultData', getAllVaultItems());
     });
 
     socket.on('adminAction', async (data) => {
@@ -275,9 +237,12 @@ io.on('connection', (socket) => {
                         if (targetSocketId) {
                             const { data: freshUser } = await supabase.from('Hunters').select('inventory, active_cosmetics').eq('username', data.target).single();
                             
-                            // Send updated master inventory with new unlocked status
-                            const fullInv = getMasterInventory(freshUser.inventory);
-                            io.to(targetSocketId).emit('inventoryUpdate', { inventory: fullInv, activeCosmetics: freshUser.active_cosmetics });
+                            // Send both arrays to keep UI populated and update owned stats
+                            io.to(targetSocketId).emit('inventoryUpdate', { 
+                                inventory: getAllVaultItems(), 
+                                ownedItems: freshUser.inventory || [],
+                                activeCosmetics: freshUser.active_cosmetics 
+                            });
                             
                             const displayName = data.item.split(':')[1];
                             io.to(targetSocketId).emit('announcement', `SYSTEM: YOU RECEIVED A NEW ITEM - ${displayName}`);
@@ -328,15 +293,15 @@ io.on('connection', (socket) => {
             const startingMusic = user.active_cosmetics?.music || (reconnected ? null : 'menu.mp3');
             if (startingMusic) socket.emit('playMusic', startingMusic);
 
-            // Fetch FULL inventory for UI mapping
-            const fullInv = getMasterInventory(user.inventory);
-
             socket.emit('authSuccess', { 
                 username: user.username, mana: user.hunterpoints, 
                 rank: getFullRankLabel(user.hunterpoints), color: RANK_COLORS[letter],
                 wins: user.wins||0, losses: user.losses||0, worldRank: (count||0)+1,
                 isAdmin: (user.username === ADMIN_NAME), music: null, 
-                inventory: fullInv, // Send objects instead of strings
+                // FIX: Send EVERY item to 'inventory' so the Vault displays them all
+                inventory: getAllVaultItems(), 
+                // FIX: Send what the player actually owns for locking mechanics
+                ownedItems: user.inventory || [], 
                 activeCosmetics: user.active_cosmetics || {}
             });
             
@@ -354,16 +319,18 @@ io.on('connection', (socket) => {
             
             const isAdmin = (data.username === ADMIN_NAME);
             
-            // Only allow equip if unlocked (or admin)
+            // SECURITY CHECK: Ensure they actually own it before equipping!
             if (isAdmin || (user && (user.inventory || []).includes(invString))) {
                 let cosmetics = user.active_cosmetics || {};
                 if (cosmetics[data.type] === data.item) cosmetics[data.type] = null;
                 else cosmetics[data.type] = data.item;
 
                 await supabase.from('Hunters').update({ active_cosmetics: cosmetics }).eq('username', data.username);
-                
-                const fullInv = getMasterInventory(user.inventory);
-                socket.emit('inventoryUpdate', { inventory: fullInv, activeCosmetics: cosmetics });
+                socket.emit('inventoryUpdate', { 
+                    inventory: getAllVaultItems(), 
+                    ownedItems: user.inventory || [],
+                    activeCosmetics: cosmetics 
+                });
 
                 if (data.type === 'music') {
                     if (cosmetics.music) {
@@ -385,6 +352,9 @@ io.on('connection', (socket) => {
                         broadcastGameState(r);
                     }
                 }
+            } else {
+                // If they click an item they don't own, tell them it's locked!
+                socket.emit('announcement', `SYSTEM: ITEM LOCKED. YOU MUST BUY OR BE GRANTED THIS ITEM TO EQUIP IT.`);
             }
         } catch(e) { console.error(e); }
     });
