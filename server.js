@@ -158,13 +158,14 @@ io.on('connection', (socket) => {
         if (socket.id !== adminSocketId) return;
         const items = [];
         
+        // PREFIX BASED NAMING CONVENTION LOGIC
         const skinDir = path.join(__dirname, 'public', 'uploads', 'skins');
         if (fs.existsSync(skinDir)) {
             fs.readdirSync(skinDir).forEach(f => {
                 if(f.endsWith('.png') || f.endsWith('.jpg')) {
-                    items.push(`skin:${f}`);
-                    items.push(`monolith:${f}`);
-                    items.push(`eagle:${f}`);
+                    if (f.startsWith('char_')) items.push(`char:${f}`);
+                    else if (f.startsWith('mono_')) items.push(`mono:${f}`);
+                    else if (f.startsWith('eagle_')) items.push(`eagle:${f}`);
                 }
             });
         }
@@ -265,7 +266,7 @@ io.on('connection', (socket) => {
             if(existingRoom) {
                 const p = existingRoom.players.find(p => p.name === user.username);
                 p.id = socket.id; 
-                p.activeCosmetics = user.active_cosmetics || {}; // Restore visuals
+                p.activeCosmetics = user.active_cosmetics || {}; 
                 socket.join(existingRoom.id);
                 if(existingRoom.active) {
                     socket.emit('gameStart', { roomId: existingRoom.id });
@@ -279,11 +280,15 @@ io.on('connection', (socket) => {
             const { count } = await supabase.from('Hunters').select('*', { count: 'exact', head: true }).gt('hunterpoints', user.hunterpoints);
             const letter = getSimpleRank(user.hunterpoints);
 
+            // Trigger music on login. If they have custom music, play it immediately.
+            const startingMusic = user.active_cosmetics?.music || (reconnected ? null : 'menu.mp3');
+            if (startingMusic) socket.emit('playMusic', startingMusic);
+
             socket.emit('authSuccess', { 
                 username: user.username, mana: user.hunterpoints, 
                 rank: getFullRankLabel(user.hunterpoints), color: RANK_COLORS[letter],
                 wins: user.wins||0, losses: user.losses||0, worldRank: (count||0)+1,
-                isAdmin: (user.username === ADMIN_NAME), music: reconnected ? null : 'menu.mp3',
+                isAdmin: (user.username === ADMIN_NAME), music: null, // Music handled above
                 inventory: user.inventory || [],
                 activeCosmetics: user.active_cosmetics || {}
             });
@@ -310,12 +315,25 @@ io.on('connection', (socket) => {
                 await supabase.from('Hunters').update({ active_cosmetics: cosmetics }).eq('username', data.username);
                 socket.emit('inventoryUpdate', { inventory: user.inventory, activeCosmetics: cosmetics });
 
+                // Live Update Music if equipped/unequipped
+                if (data.type === 'music') {
+                    if (cosmetics.music) {
+                        socket.emit('playMusic', cosmetics.music);
+                    } else {
+                        // Revert to correct default music based on player's current location
+                        const pRoom = Object.values(rooms).find(r => r.players.some(p => p.id === socket.id));
+                        if (!pRoom) socket.emit('playMusic', 'menu.mp3');
+                        else if (pRoom.active) socket.emit('playMusic', 'gameplay.mp3');
+                        else socket.emit('playMusic', 'waiting.mp3');
+                    }
+                }
+
                 for (const roomId in rooms) {
                     const r = rooms[roomId];
                     const player = r.players.find(p => p.name === data.username);
                     if (player) {
-                        player.activeCosmetics = cosmetics; // Store all local settings
-                        player.skin = cosmetics.skin || null; // This one remains global
+                        player.activeCosmetics = cosmetics; 
+                        player.skin = cosmetics.char || null; // Map 'char' strictly to player.skin globally
                         broadcastGameState(r);
                     }
                 }
@@ -359,7 +377,7 @@ io.on('connection', (socket) => {
                 mana, rankLabel: getFullRankLabel(mana), worldRankLabel: wr.label, 
                 alive: true, confirmed: false, color: PLAYER_COLORS[0], isAI: false, quit: false, powerUp: null,
                 isAdmin: (data.host === ADMIN_NAME), turnsWithoutBattle: 0, turnsWithoutPvP: 0, isStunned: false, stunDuration: 0,
-                skin: data.cosmetics?.skin || null,
+                skin: data.cosmetics?.char || null, // Map from 'char'
                 activeCosmetics: data.cosmetics || {}
             }],
             world: {},
@@ -368,9 +386,10 @@ io.on('connection', (socket) => {
         socket.join(id);
         io.to(id).emit('waitingRoomUpdate', rooms[id]);
         
-        // Handle Player Bound Music
-        const startMusic = data.cosmetics?.music || 'waiting.mp3';
-        socket.emit('playMusic', startMusic);
+        // Only switch to waiting.mp3 if they don't have custom music running continuously
+        if (!data.cosmetics?.music) {
+            socket.emit('playMusic', 'waiting.mp3');
+        }
 
         syncAllMonoliths();
     });
@@ -387,14 +406,16 @@ io.on('connection', (socket) => {
                 mana, rankLabel: getFullRankLabel(mana), worldRankLabel: wr.label,
                 alive: true, confirmed: false, color: PLAYER_COLORS[slot], isAI: false, quit: false, powerUp: null,
                 isAdmin: (data.user === ADMIN_NAME), turnsWithoutBattle: 0, turnsWithoutPvP: 0, isStunned: false, stunDuration: 0,
-                skin: data.cosmetics?.skin || null,
+                skin: data.cosmetics?.char || null,
                 activeCosmetics: data.cosmetics || {}
             });
             socket.join(data.gateID);
             io.to(data.gateID).emit('waitingRoomUpdate', r);
             
-            const joinMusic = data.cosmetics?.music || 'waiting.mp3';
-            socket.emit('playMusic', joinMusic);
+            // Only switch to waiting.mp3 if they don't have custom music
+            if (!data.cosmetics?.music) {
+                socket.emit('playMusic', 'waiting.mp3');
+            }
 
             syncAllMonoliths();
         }
@@ -419,7 +440,7 @@ io.on('connection', (socket) => {
             turn: 0, currentRoundMoves: 0, round: 1, spawnCounter: 0, 
             survivorTurns: 0, respawnHappened: false, currentBattle: null,
             players: [
-                { id: socket.id, name: data.user, slot: 0, ...CORNERS[0], mana, rankLabel: getFullRankLabel(mana), alive: true, isAI: false, color: PLAYER_COLORS[0], quit: false, powerUp: null, isAdmin: (data.user === ADMIN_NAME), turnsWithoutBattle: 0, turnsWithoutPvP: 0, isStunned: false, stunDuration: 0, skin: data.cosmetics?.skin || null, activeCosmetics: data.cosmetics || {} },
+                { id: socket.id, name: data.user, slot: 0, ...CORNERS[0], mana, rankLabel: getFullRankLabel(mana), alive: true, isAI: false, color: PLAYER_COLORS[0], quit: false, powerUp: null, isAdmin: (data.user === ADMIN_NAME), turnsWithoutBattle: 0, turnsWithoutPvP: 0, isStunned: false, stunDuration: 0, skin: data.cosmetics?.char || null, activeCosmetics: data.cosmetics || {} },
                 { id: 'ai1', name: AI_NAMES[1], slot: 1, ...CORNERS[1], mana: 200, rankLabel: "Lower D-Rank", alive: true, isAI: true, color: PLAYER_COLORS[1], quit: false, powerUp: null, turnsWithoutBattle: 0, turnsWithoutPvP: 0, isStunned: false, stunDuration: 0, skin: null, activeCosmetics: {} },
                 { id: 'ai2', name: AI_NAMES[2], slot: 2, ...CORNERS[2], mana: 233, rankLabel: "Higher D-Rank", alive: true, isAI: true, color: PLAYER_COLORS[2], quit: false, powerUp: null, turnsWithoutBattle: 0, turnsWithoutPvP: 0, isStunned: false, stunDuration: 0, skin: null, activeCosmetics: {} },
                 { id: 'ai3', name: AI_NAMES[3], slot: 3, ...CORNERS[3], mana: 200, rankLabel: "Lower D-Rank", alive: true, isAI: true, color: PLAYER_COLORS[3], quit: false, powerUp: null, turnsWithoutBattle: 0, turnsWithoutPvP: 0, isStunned: false, stunDuration: 0, skin: null, activeCosmetics: {} }
@@ -482,11 +503,10 @@ function startGame(room) {
     for(let i=0; i<5; i++) spawnMonolith(room);
     io.to(room.id).emit('gameStart', { roomId: room.id });
     
-    // PLAYER BOUND GAMEPLAY MUSIC
+    // Only switch to default gameplay music if the player doesn't have custom music continuously running
     room.players.forEach(p => {
-        if (!p.isAI) {
-            const track = p.activeCosmetics?.music || 'gameplay.mp3';
-            io.to(p.id).emit('playMusic', track);
+        if (!p.isAI && !p.activeCosmetics?.music) {
+            io.to(p.id).emit('playMusic', 'gameplay.mp3');
         }
     });
 
@@ -717,7 +737,20 @@ function handleWin(room, winnerName) {
     });
 
     broadcastWorldRankings();
-    setTimeout(() => { io.to(room.id).emit('returnToProfile'); delete rooms[room.id]; syncAllMonoliths(); }, 6000);
+
+    setTimeout(() => { 
+        io.to(room.id).emit('returnToProfile'); 
+        
+        // Revert back to default menu music only if they don't have custom music equipped
+        room.players.forEach(p => {
+            if (!p.isAI && !p.activeCosmetics?.music) {
+                io.to(p.id).emit('playMusic', 'menu.mp3');
+            }
+        });
+
+        delete rooms[room.id]; 
+        syncAllMonoliths(); 
+    }, 6000);
 }
 
 function handleDisconnect(socket, isQuit) {
@@ -747,6 +780,12 @@ function handleDisconnect(socket, isQuit) {
             
             socket.leave(room.id);
             socket.emit('returnToProfile'); 
+
+            // Play menu music on quit if no custom music
+            if (!p.activeCosmetics?.music) {
+                socket.emit('playMusic', 'menu.mp3');
+            }
+
             const activeHumans = room.players.filter(pl => !pl.quit && !pl.isAI);
             if(room.isOnline && activeHumans.length === 1) { handleWin(room, activeHumans[0].name); return; }
             if(!room.isOnline) { delete rooms[room.id]; syncAllMonoliths(); return; }
@@ -892,13 +931,13 @@ async function broadcastGameState(room) {
         
         const sanitized = room.players.map(pl => ({
             ...pl,
-            activeCosmetics: undefined, // Prevent leaking other players' hidden settings
+            activeCosmetics: undefined, // Hide other players' cosmetics arrays
+            skin: pl.skin, // Let the world see everyone's character skins
             mana: (pl.id === socket.id || isSocketAdmin) ? pl.mana : null,
             powerUp: (pl.id === socket.id) ? pl.powerUp : (isSocketAdmin && pl.powerUp ? '?' : null),
             displayRank: getDisplayRank(pl.mana)
         }));
 
-        // Dynamically replace hostCosmetics with the personal cosmetics for this specific socket
         const personalCosmetics = targetPlayer ? targetPlayer.activeCosmetics : {};
 
         socket.emit('gameStateUpdate', { 
