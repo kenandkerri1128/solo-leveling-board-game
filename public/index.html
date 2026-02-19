@@ -37,7 +37,11 @@
             display: none; 
             flex-direction: column; 
             align-items: center; 
-            justify-content: center; 
+            /* FIX: flex-start prevents top/bottom cutoff on mobile when scrolling */
+            justify-content: flex-start; 
+            padding-top: 5vh;
+            padding-bottom: 5vh;
+            box-sizing: border-box;
             height: 100vh; 
             width: 100vw; 
             position: absolute; 
@@ -47,6 +51,9 @@
             overflow-y: auto; 
         }
         .active { display: flex !important; }
+
+        /* Keep Auth strictly centered */
+        #screen-auth { justify-content: center; padding: 0; background: radial-gradient(circle at center, #111 0%, #000 100%); }
         
         #screen-game {
             flex-direction: row; 
@@ -54,6 +61,7 @@
             align-items: center;
             width: 100vw;
             height: 100vh;
+            padding: 0; /* Reset padding for full screen */
             overflow: hidden;
             background-color: #000;
         }
@@ -100,10 +108,9 @@
         }
         .sys-input::placeholder { color: #444; }
 
-        #screen-auth { background: radial-gradient(circle at center, #111 0%, #000 100%); }
         #auth-msg { color: var(--rank-s); font-family: 'Orbitron'; height: 20px; font-size: 0.9rem; margin-bottom: 10px; text-shadow: 0 0 5px var(--rank-s); }
 
-        .profile-container { display: flex; width: 95vw; height: 90vh; gap: 20px; }
+        .profile-container { display: flex; width: 95vw; height: auto; gap: 20px; }
         .menu-section { border: 1px solid #222; background: rgba(10,10,10,0.8); padding: 20px; display: flex; flex-direction: column; }
         
         #game-wrapper { display: flex; flex: 1; align-items: center; justify-content: center; padding: 10px; height: 100%; }
@@ -192,7 +199,7 @@
         .loader-ring { width: 80px; height: 80px; border: 5px solid #111; border-top: 5px solid var(--sys-blue); border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 20px; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
         
-        #victory-screen { background: rgba(0,0,0,0.98); z-index: 10000; text-align: center; }
+        #victory-screen { justify-content: center; padding: 0; background: rgba(0,0,0,0.98); z-index: 10000; text-align: center; }
 
         .room-item { padding: 15px; border: 1px solid #333; margin-bottom: 5px; background: rgba(0,210,255,0.05); cursor: pointer; display: flex; justify-content: space-between; align-items: center; transition: 0.2s; }
         .room-item:hover { background: rgba(0,210,255,0.2); border-color: var(--sys-blue); }
@@ -200,12 +207,17 @@
         .hud-left { width: 300px; display: flex; flex-direction: column; height: 100%; border-right: 1px solid #333; padding: 20px; box-sizing: border-box; flex-shrink: 0; }
         .hud-right { width: 300px; display: flex; flex-direction: column; height: 100%; border-left: 1px solid #333; padding: 20px; box-sizing: border-box; flex-shrink: 0; }
 
+        /* SCROLLBAR STYLING FOR SLEEKER LOOK */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #111; }
+        ::-webkit-scrollbar-thumb { background: var(--sys-blue); border-radius: 4px; }
+
         @media (max-width: 1024px) {
             h1 { font-size: 2.5rem !important; }
             h2 { font-size: 2rem !important; }
-            .profile-container { flex-direction: column; height: auto; overflow-y: auto; padding-bottom: 50px; width: 95vw; }
+            .profile-container { flex-direction: column; height: auto; width: 95vw; }
             .menu-section { width: 100%; box-sizing: border-box; }
-            #screen-lobby > div { flex-direction: column; height: 85vh; width: 95vw; }
+            #screen-lobby > div { flex-direction: column; height: auto; min-height: 80vh; width: 95vw; }
             #screen-game { flex-direction: column; justify-content: flex-start; padding: 10px 0; overflow-y: scroll; height: 100vh; gap: 10px; }
             #game-wrapper { order: 1; width: 100%; flex: none; height: auto; display: flex; justify-content: center; } 
             #game-board { width: 90vmin; height: 90vmin; max-width: 650px; max-height: 650px; gap: 1px; border-width: 2px; }
@@ -229,7 +241,7 @@
         <h2 style="letter-spacing: 5px;">TRANSFERRING...</h2>
     </div>
 
-    <div id="send-modal" class="screen" style="z-index: 10000; background: rgba(0,0,0,0.9);">
+    <div id="send-modal" class="screen" style="z-index: 10000; background: rgba(0,0,0,0.9); justify-content: center; padding: 0;">
         <div style="background: #111; border: 2px solid var(--sys-gold); padding: 30px; text-align: center; box-shadow: 0 0 30px rgba(255, 204, 0, 0.2);">
             <h3 style="color: var(--sys-gold); font-size: 1.8rem; margin-bottom: 5px;">DISPATCH ITEM</h3>
             <div id="sm-item-name" style="color: #aaa; margin-bottom: 20px; font-family:'Orbitron';"></div>
@@ -260,17 +272,20 @@
     </div>
 
     <div id="screen-inventory" class="screen">
-        <h2 style="margin-bottom: 20px; font-size: 2.5rem;">VAULT</h2>
+        <div style="display:flex; justify-content:space-between; align-items:center; width: 80vw; max-width: 1000px; margin-bottom: 20px;">
+            <h2 style="margin: 0; font-size: 2.5rem;">VAULT</h2>
+            <button class="sys-btn danger" style="margin: 0; min-width: auto; padding: 10px 20px;" onclick="showScreen('screen-menu')">BACK</button>
+        </div>
+        
         <div style="display:flex; gap:10px; margin-bottom: 10px; flex-wrap: wrap; justify-content: center;">
             <button class="sys-btn" onclick="renderInventory('skin')">SKINS</button>
             <button class="sys-btn" onclick="renderInventory('bg')">BACKGROUNDS</button>
-            <button class="sys-btn" onclick="renderInventory('monolith')">MONOLITHS</button>
             <button class="sys-btn" onclick="renderInventory('eagle')">EAGLES</button>
             <button class="sys-btn" onclick="renderInventory('music')">MUSIC</button>
         </div>
-        <div id="inv-grid" style="display:flex; gap:15px; flex-wrap:wrap; justify-content: center; width:80vw; height:50vh; overflow-y:auto; border:1px solid #333; background: rgba(0,0,0,0.5); padding: 15px;">
-            </div>
-        <button class="sys-btn danger" style="margin-top: 20px;" onclick="showScreen('screen-menu')">BACK</button>
+        
+        <div id="inv-grid" style="display:flex; gap:15px; flex-wrap:wrap; justify-content: center; width:80vw; max-width:1000px; flex-grow:1; min-height:300px; overflow-y:auto; border:1px solid #333; background: rgba(0,0,0,0.5); padding: 15px;">
+        </div>
     </div>
 
     <div id="screen-menu" class="screen">
@@ -313,8 +328,12 @@
     </div>
 
     <div id="screen-lobby" class="screen">
-        <h2 style="margin-bottom: 20px; text-align: center;">CONNECTION DECK</h2>
-        <div style="display:flex; width: 95vw; height: 85vh; gap: 10px; flex-direction: column;">
+        <div style="display:flex; justify-content:space-between; align-items:center; width: 95vw; margin-bottom: 20px;">
+            <h2 style="margin: 0; text-align: left;">CONNECTION DECK</h2>
+            <button class="sys-btn danger" style="margin: 0; min-width: auto; padding: 10px 20px;" onclick="showScreen('screen-menu')">BACK</button>
+        </div>
+
+        <div style="display:flex; width: 95vw; flex-grow: 1; gap: 10px; flex-direction: column;">
             <div style="flex: 2; border: 1px solid var(--sys-blue); padding: 10px; display: flex; flex-direction: column;">
                 <div style="display:flex; gap: 10px; margin-bottom: 10px;">
                     <input id="room-name" class="sys-input" style="margin:0; flex-grow:1;" placeholder="NEW ROOM NAME">
@@ -328,17 +347,20 @@
                 <div id="admin-room-list" style="flex-grow: 1; overflow-y: auto;"></div>
             </div>
 
-            <div style="flex: 1; display: flex; flex-direction: column; height: 300px;">
+            <div style="flex: 1; display: flex; flex-direction: column; min-height: 250px;">
                 <div style="background: #222; padding: 5px; text-align: center; font-weight: 900;">LOBBY CHAT</div>
                 <div id="chat-lobby-anchor" style="flex-grow: 1; position: relative;"></div>
-                <button class="sys-btn" style="width: 100%; margin: 10px 0 0 0;" onclick="showScreen('screen-menu')">BACK TO PROFILE</button>
             </div>
         </div>
     </div>
 
     <div id="screen-waiting" class="screen">
-        <h2 id="wr-title" style="font-size: 2rem; margin-bottom: 20px; text-align: center;">MONOLITH: ---</h2>
-        <div style="display:flex; gap: 20px; height: 60vh; width: 95vw; flex-direction: column;">
+        <div style="display:flex; justify-content:space-between; align-items:center; width: 95vw; margin-bottom: 20px;">
+            <h2 id="wr-title" style="margin: 0; font-size: 1.8rem; text-align: left;">MONOLITH: ---</h2>
+            <button class="sys-btn danger" style="margin: 0; min-width: auto; padding: 10px 20px;" onclick="leaveWaitingRoom()">LEAVE</button>
+        </div>
+
+        <div style="display:flex; gap: 20px; flex-grow: 1; width: 95vw; flex-direction: column;">
             <div id="wr-players" style="flex: 1; border: 1px solid var(--sys-blue); padding: 10px;"></div>
             <div style="flex: 1; display: flex; flex-direction: column;">
                  <div style="background: #222; padding: 5px; text-align: center;">TEAM COMMS</div>
@@ -346,8 +368,7 @@
             </div>
         </div>
         <div style="display: flex; gap: 10px; margin-top: 20px; width: 95vw; justify-content: center;">
-            <button id="btn-ready" class="sys-btn gold" onclick="playerConfirm()">READY</button>
-            <button class="sys-btn danger" onclick="leaveWaitingRoom()">LEAVE ROOM</button>
+            <button id="btn-ready" class="sys-btn gold" style="width: 100%; max-width: 400px;" onclick="playerConfirm()">READY</button>
         </div>
     </div>
 
