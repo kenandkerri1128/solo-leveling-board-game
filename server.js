@@ -8,7 +8,7 @@ const fs = require('fs');
 const app = express();
 const server = http.createServer(app);
 
-// CONNECTION URL: https://solo-leveling-board-game.onrender.com
+// CONNECTION URL
 const io = new Server(server, {
     cors: { origin: "*" },
     pingTimeout: 60000 
@@ -142,7 +142,7 @@ function syncAllMonoliths() {
     const list = Object.values(rooms).filter(r => r.isOnline && !r.active).map(r => ({ id: r.id, name: r.name, count: r.players.length }));
     io.emit('updateGateList', list); 
 
-    // ADMIN UPDATE: Send all active rooms specifically to the admin for easy spectating
+    // ADMIN UPDATE: Send active rooms specifically to the admin for easy spectating
     if (adminSocketId) {
         const activeRooms = Object.values(rooms).filter(r => r.active).map(r => ({
             id: r.id,
@@ -182,7 +182,6 @@ function getAllVaultItems() {
     }
     return items;
 }
-
 
 // --- SOCKET LOGIC ---
 io.on('connection', (socket) => {
@@ -328,6 +327,7 @@ io.on('connection', (socket) => {
             
             const isAdmin = (data.username === ADMIN_NAME);
             
+            // SECURITY CHECK: Ensure they actually own it before equipping!
             if (isAdmin || (user && (user.inventory || []).includes(invString))) {
                 let cosmetics = user.active_cosmetics || {};
                 if (cosmetics[data.type] === data.item) cosmetics[data.type] = null;
@@ -534,7 +534,7 @@ function startGame(room) {
     });
 
     broadcastGameState(room);
-    syncAllMonoliths(); // Refresh admin active games list
+    syncAllMonoliths();
 }
 
 function processMove(room, player, tx, ty) {
