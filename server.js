@@ -154,7 +154,6 @@ io.on('connection', (socket) => {
         connectedDevices[deviceId] = socket.id;
     }
 
-    // --- NEW: ADMIN MASTER VAULT LOADER ---
     socket.on('requestAdminVault', () => {
         if (socket.id !== adminSocketId) return;
         const items = [];
@@ -300,7 +299,6 @@ io.on('connection', (socket) => {
             const { data: user } = await supabase.from('Hunters').select('inventory, active_cosmetics').eq('username', data.username).single();
             const invString = `${data.type}:${data.item}`;
             
-            // Allow admin to equip anything dynamically, players must own it
             const isAdmin = (data.username === ADMIN_NAME);
             
             if (isAdmin || (user && (user.inventory || []).includes(invString))) {
@@ -621,15 +619,20 @@ function finishTurn(room) {
         justPlayed.turnsWithoutBattle++;
         justPlayed.turnsWithoutPvP++;
 
-        if (justPlayed.turnsWithoutBattle >= 5 && !justPlayed.isStunned) {
-            justPlayed.isStunned = true;
-            justPlayed.stunDuration = 1;
-            io.to(room.id).emit('announcement', `${justPlayed.name} is EXHAUSTED (No Battle)! STUNNED for 1 Turn!`);
-        }
-        else if (justPlayed.turnsWithoutPvP >= 10 && !justPlayed.isStunned) {
+        // --- FIXED COWARDLY/EXHAUSTED LOGIC ---
+        // Stun resets happen IMMEDIATELY upon stun, not upon recovery, 
+        // to prevent Exhausted loops from hiding Cowardly loops.
+        if (justPlayed.turnsWithoutPvP >= 10 && !justPlayed.isStunned) {
             justPlayed.isStunned = true;
             justPlayed.stunDuration = 2;
+            justPlayed.turnsWithoutPvP = 0; // RESET
             io.to(room.id).emit('announcement', `${justPlayed.name} is COWARDLY (No PvP)! STUNNED for 2 Turns!`);
+        }
+        else if (justPlayed.turnsWithoutBattle >= 5 && !justPlayed.isStunned) {
+            justPlayed.isStunned = true;
+            justPlayed.stunDuration = 1;
+            justPlayed.turnsWithoutBattle = 0; // RESET
+            io.to(room.id).emit('announcement', `${justPlayed.name} is EXHAUSTED (No Battle)! STUNNED for 1 Turn!`);
         }
     }
 
@@ -661,8 +664,6 @@ function finishTurn(room) {
                  nextP.stunDuration--;
                  if (nextP.stunDuration <= 0) {
                      nextP.isStunned = false; 
-                     nextP.turnsWithoutBattle = 0;
-                     nextP.turnsWithoutPvP = 0; 
                      io.to(room.id).emit('announcement', `${nextP.name} recovers from STUN.`);
                      validNext = true; 
                  } else {
