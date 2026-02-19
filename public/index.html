@@ -322,6 +322,12 @@
                 </div>
                 <div id="room-list" style="flex-grow: 1; overflow-y: auto;"></div>
             </div>
+
+            <div id="admin-room-panel" style="display:none; flex: 1.5; border: 1px solid var(--sys-gold); padding: 10px; flex-direction: column; background: rgba(255, 204, 0, 0.05);">
+                <div style="color: var(--sys-gold); font-weight: 900; margin-bottom: 10px; text-align: center;">ACTIVE SYSTEM INSTANCES (ADMIN)</div>
+                <div id="admin-room-list" style="flex-grow: 1; overflow-y: auto;"></div>
+            </div>
+
             <div style="flex: 1; display: flex; flex-direction: column; height: 300px;">
                 <div style="background: #222; padding: 5px; text-align: center; font-weight: 900;">LOBBY CHAT</div>
                 <div id="chat-lobby-anchor" style="flex-grow: 1; position: relative;"></div>
@@ -505,6 +511,7 @@
             
             if (d.isAdmin) {
                 document.getElementById('admin-controls').style.display = 'flex';
+                document.getElementById('admin-room-panel').style.display = 'flex';
             }
 
             const currentScreen = document.querySelector('.screen.active').id;
@@ -755,6 +762,30 @@
             const el = document.getElementById('room-list');
             el.innerHTML = list.map(r => `<div class="room-item" onclick="socket.emit('joinGate', {gateID: '${r.id}', user: myHunter.username, cosmetics: myHunter.activeCosmetics})"><span>${r.name} ${myHunter.isAdmin ? `<small style="color:red">[${r.id}]</small>` : ''}</span><span style="color:var(--sys-blue)">${r.count}/4</span></div>`).join('');
         });
+
+        // ADMIN FEATURE: Update Active Rooms List
+        socket.on('updateAdminRoomList', (list) => {
+            const el = document.getElementById('admin-room-list');
+            if(!el) return;
+            el.innerHTML = list.map(r => `
+                <div class="room-item" style="border-color: var(--sys-gold); display:flex; justify-content:space-between; align-items:center; background: rgba(255, 204, 0, 0.05);" onclick="spectateAsAdmin('${r.id}')">
+                    <div>
+                        <span style="color:var(--sys-gold); font-weight:bold;">${r.isOnline ? 'MULTIPLAYER' : 'SOLO AI'}</span> |
+                        <span style="color:#fff;">${r.name}</span>
+                        <div style="font-size:0.7rem; color:#aaa; margin-top:3px;">PLAYERS: ${r.players}</div>
+                    </div>
+                    <button class="sys-btn gold" style="min-width: auto; padding: 5px 10px; font-size: 0.7rem; margin:0;">SPECTATE</button>
+                </div>
+            `).join('');
+        });
+
+        function spectateAsAdmin(roomId) {
+            if (confirm('SPECTATE THIS ACTIVE INSTANCE?')) {
+                socket.emit('spectateRoom', roomId);
+                currentGateID = roomId;
+                transportAnimation(() => { showScreen('screen-game'); });
+            }
+        }
 
         socket.on('waitingRoomUpdate', (room) => {
             currentGateID = room.id;
