@@ -143,6 +143,46 @@ function syncAllMonoliths() {
     io.emit('updateGateList', list); 
 }
 
+// --- MASTER INVENTORY GENERATOR ---
+function getMasterInventory(userOwnedItems) {
+    const masterItems = [];
+    const ownedSet = new Set(userOwnedItems || []);
+
+    const skinDir = path.join(__dirname, 'public', 'uploads', 'skins');
+    if (fs.existsSync(skinDir)) {
+        fs.readdirSync(skinDir).forEach(f => {
+            if(f.endsWith('.png') || f.endsWith('.jpg') || f.endsWith('.jpeg')) {
+                if (f.startsWith('char_')) {
+                    masterItems.push({ type: 'skin', item: f, isUnlocked: ownedSet.has(`skin:${f}`) });
+                } else if (f.startsWith('eagle_')) {
+                    masterItems.push({ type: 'eagle', item: f, isUnlocked: ownedSet.has(`eagle:${f}`) });
+                }
+            }
+        });
+    }
+    
+    const bgDir = path.join(__dirname, 'public', 'uploads', 'bg');
+    if (fs.existsSync(bgDir)) {
+        fs.readdirSync(bgDir).forEach(f => {
+            if(f.endsWith('.png') || f.endsWith('.jpg') || f.endsWith('.jpeg')) {
+                masterItems.push({ type: 'bg', item: f, isUnlocked: ownedSet.has(`bg:${f}`) });
+            }
+        });
+    }
+
+    const musicDir = path.join(__dirname, 'public', 'uploads', 'music');
+    if (fs.existsSync(musicDir)) {
+        fs.readdirSync(musicDir).forEach(f => {
+            if(f.endsWith('.mp3') || f.endsWith('.wav')) {
+                masterItems.push({ type: 'music', item: f, isUnlocked: ownedSet.has(`music:${f}`) });
+            }
+        });
+    }
+
+    return masterItems;
+}
+
+
 // --- SOCKET LOGIC ---
 io.on('connection', (socket) => {
     
@@ -160,12 +200,11 @@ io.on('connection', (socket) => {
         if (socket.id !== adminSocketId) return;
         const items = [];
         
-        // PREFIX BASED NAMING CONVENTION LOGIC (ALL IN ONE SKINS FOLDER)
+        // ADMIN VAULT STILL GETS SIMPLE STRINGS FOR GRANTING
         const skinDir = path.join(__dirname, 'public', 'uploads', 'skins');
         if (fs.existsSync(skinDir)) {
             fs.readdirSync(skinDir).forEach(f => {
                 if(f.endsWith('.png') || f.endsWith('.jpg') || f.endsWith('.jpeg')) {
-                    // Mapped 'char_' directly to 'skin:' so the UI tab recognizes it
                     if (f.startsWith('char_')) items.push(`skin:${f}`);
                     else if (f.startsWith('eagle_')) items.push(`eagle:${f}`);
                 }
@@ -235,7 +274,11 @@ io.on('connection', (socket) => {
                         const targetSocketId = connectedUsers[data.target];
                         if (targetSocketId) {
                             const { data: freshUser } = await supabase.from('Hunters').select('inventory, active_cosmetics').eq('username', data.target).single();
-                            io.to(targetSocketId).emit('inventoryUpdate', { inventory: freshUser.inventory, activeCosmetics: freshUser.active_cosmetics });
+                            
+                            // Send updated master inventory with new unlocked status
+                            const fullInv = getMasterInventory(freshUser.inventory);
+                            io.to(targetSocketId).emit('inventoryUpdate', { inventory: fullInv, activeCosmetics: freshUser.active_cosmetics });
+                            
                             const displayName = data.item.split(':')[1];
                             io.to(targetSocketId).emit('announcement', `SYSTEM: YOU RECEIVED A NEW ITEM - ${displayName}`);
                         }
@@ -282,16 +325,18 @@ io.on('connection', (socket) => {
             const { count } = await supabase.from('Hunters').select('*', { count: 'exact', head: true }).gt('hunterpoints', user.hunterpoints);
             const letter = getSimpleRank(user.hunterpoints);
 
-            // Trigger music on login. If they have custom music, play it immediately.
             const startingMusic = user.active_cosmetics?.music || (reconnected ? null : 'menu.mp3');
             if (startingMusic) socket.emit('playMusic', startingMusic);
+
+            // Fetch FULL inventory for UI mapping
+            const fullInv = getMasterInventory(user.inventory);
 
             socket.emit('authSuccess', { 
                 username: user.username, mana: user.hunterpoints, 
                 rank: getFullRankLabel(user.hunterpoints), color: RANK_COLORS[letter],
                 wins: user.wins||0, losses: user.losses||0, worldRank: (count||0)+1,
-                isAdmin: (user.username === ADMIN_NAME), music: null, // Music handled above
-                inventory: user.inventory || [],
+                isAdmin: (user.username === ADMIN_NAME), music: null, 
+                inventory: fullInv, // Send objects instead of strings
                 activeCosmetics: user.active_cosmetics || {}
             });
             
@@ -309,20 +354,21 @@ io.on('connection', (socket) => {
             
             const isAdmin = (data.username === ADMIN_NAME);
             
+            // Only allow equip if unlocked (or admin)
             if (isAdmin || (user && (user.inventory || []).includes(invString))) {
                 let cosmetics = user.active_cosmetics || {};
                 if (cosmetics[data.type] === data.item) cosmetics[data.type] = null;
                 else cosmetics[data.type] = data.item;
 
                 await supabase.from('Hunters').update({ active_cosmetics: cosmetics }).eq('username', data.username);
-                socket.emit('inventoryUpdate', { inventory: user.inventory, activeCosmetics: cosmetics });
+                
+                const fullInv = getMasterInventory(user.inventory);
+                socket.emit('inventoryUpdate', { inventory: fullInv, activeCosmetics: cosmetics });
 
-                // Live Update Music if equipped/unequipped
                 if (data.type === 'music') {
                     if (cosmetics.music) {
                         socket.emit('playMusic', cosmetics.music);
                     } else {
-                        // Revert to correct default music based on player's current location
                         const pRoom = Object.values(rooms).find(r => r.players.some(p => p.id === socket.id));
                         if (!pRoom) socket.emit('playMusic', 'menu.mp3');
                         else if (pRoom.active) socket.emit('playMusic', 'gameplay.mp3');
@@ -388,7 +434,6 @@ io.on('connection', (socket) => {
         socket.join(id);
         io.to(id).emit('waitingRoomUpdate', rooms[id]);
         
-        // Only switch to waiting.mp3 if they don't have custom music running continuously
         if (!data.cosmetics?.music) {
             socket.emit('playMusic', 'waiting.mp3');
         }
@@ -414,7 +459,6 @@ io.on('connection', (socket) => {
             socket.join(data.gateID);
             io.to(data.gateID).emit('waitingRoomUpdate', r);
             
-            // Only switch to waiting.mp3 if they don't have custom music
             if (!data.cosmetics?.music) {
                 socket.emit('playMusic', 'waiting.mp3');
             }
@@ -505,7 +549,6 @@ function startGame(room) {
     for(let i=0; i<5; i++) spawnMonolith(room);
     io.to(room.id).emit('gameStart', { roomId: room.id });
     
-    // Only switch to default gameplay music if the player doesn't have custom music continuously running
     room.players.forEach(p => {
         if (!p.isAI && !p.activeCosmetics?.music) {
             io.to(p.id).emit('playMusic', 'gameplay.mp3');
@@ -743,7 +786,6 @@ function handleWin(room, winnerName) {
     setTimeout(() => { 
         io.to(room.id).emit('returnToProfile'); 
         
-        // Revert back to default menu music only if they don't have custom music equipped
         room.players.forEach(p => {
             if (!p.isAI && !p.activeCosmetics?.music) {
                 io.to(p.id).emit('playMusic', 'menu.mp3');
@@ -783,7 +825,6 @@ function handleDisconnect(socket, isQuit) {
             socket.leave(room.id);
             socket.emit('returnToProfile'); 
 
-            // Play menu music on quit if no custom music
             if (!p.activeCosmetics?.music) {
                 socket.emit('playMusic', 'menu.mp3');
             }
@@ -933,8 +974,8 @@ async function broadcastGameState(room) {
         
         const sanitized = room.players.map(pl => ({
             ...pl,
-            activeCosmetics: undefined, // Hide other players' cosmetics arrays
-            skin: pl.skin, // Let the world see everyone's character skins
+            activeCosmetics: undefined, 
+            skin: pl.skin, 
             mana: (pl.id === socket.id || isSocketAdmin) ? pl.mana : null,
             powerUp: (pl.id === socket.id) ? pl.powerUp : (isSocketAdmin && pl.powerUp ? '?' : null),
             displayRank: getDisplayRank(pl.mana)
