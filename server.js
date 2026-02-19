@@ -21,7 +21,7 @@ const SUPABASE_URL = 'https://wfsuxqgvshrhqfvnkzdx.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_gV-RZMfBZ1dLU60Ht4J9iw_-sRWSKnL'; 
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
-// --- ASSET DIRECTORIES (STORE PREP) ---
+// --- ASSET DIRECTORIES ---
 const uploadDirs = [
     path.join(__dirname, 'public', 'uploads', 'skins'),
     path.join(__dirname, 'public', 'uploads', 'bg'),
@@ -265,6 +265,7 @@ io.on('connection', (socket) => {
             if(existingRoom) {
                 const p = existingRoom.players.find(p => p.name === user.username);
                 p.id = socket.id; 
+                p.activeCosmetics = user.active_cosmetics || {}; // Restore visuals
                 socket.join(existingRoom.id);
                 if(existingRoom.active) {
                     socket.emit('gameStart', { roomId: existingRoom.id });
@@ -313,8 +314,8 @@ io.on('connection', (socket) => {
                     const r = rooms[roomId];
                     const player = r.players.find(p => p.name === data.username);
                     if (player) {
-                        player.skin = cosmetics.skin || null;
-                        if (r.players[0].name === data.username) r.hostCosmetics = cosmetics; 
+                        player.activeCosmetics = cosmetics; // Store all local settings
+                        player.skin = cosmetics.skin || null; // This one remains global
                         broadcastGameState(r);
                     }
                 }
@@ -353,20 +354,24 @@ io.on('connection', (socket) => {
             id, name: data.name, isOnline: true, active: false, processing: false,
             turn: 0, currentRoundMoves: 0, round: 1, spawnCounter: 0, 
             survivorTurns: 0, respawnHappened: false, currentBattle: null,
-            hostCosmetics: data.cosmetics || {}, 
             players: [{ 
                 id: socket.id, name: data.host, slot: 0, ...CORNERS[0], 
                 mana, rankLabel: getFullRankLabel(mana), worldRankLabel: wr.label, 
                 alive: true, confirmed: false, color: PLAYER_COLORS[0], isAI: false, quit: false, powerUp: null,
                 isAdmin: (data.host === ADMIN_NAME), turnsWithoutBattle: 0, turnsWithoutPvP: 0, isStunned: false, stunDuration: 0,
-                skin: data.cosmetics?.skin || null
+                skin: data.cosmetics?.skin || null,
+                activeCosmetics: data.cosmetics || {}
             }],
             world: {},
             afkTimer: null
         };
         socket.join(id);
         io.to(id).emit('waitingRoomUpdate', rooms[id]);
-        socket.emit('playMusic', 'waiting.mp3');
+        
+        // Handle Player Bound Music
+        const startMusic = data.cosmetics?.music || 'waiting.mp3';
+        socket.emit('playMusic', startMusic);
+
         syncAllMonoliths();
     });
 
@@ -382,11 +387,15 @@ io.on('connection', (socket) => {
                 mana, rankLabel: getFullRankLabel(mana), worldRankLabel: wr.label,
                 alive: true, confirmed: false, color: PLAYER_COLORS[slot], isAI: false, quit: false, powerUp: null,
                 isAdmin: (data.user === ADMIN_NAME), turnsWithoutBattle: 0, turnsWithoutPvP: 0, isStunned: false, stunDuration: 0,
-                skin: data.cosmetics?.skin || null
+                skin: data.cosmetics?.skin || null,
+                activeCosmetics: data.cosmetics || {}
             });
             socket.join(data.gateID);
             io.to(data.gateID).emit('waitingRoomUpdate', r);
-            socket.emit('playMusic', 'waiting.mp3');
+            
+            const joinMusic = data.cosmetics?.music || 'waiting.mp3';
+            socket.emit('playMusic', joinMusic);
+
             syncAllMonoliths();
         }
     });
@@ -409,12 +418,11 @@ io.on('connection', (socket) => {
             id, isOnline: false, active: false, processing: false, mode: data.diff,
             turn: 0, currentRoundMoves: 0, round: 1, spawnCounter: 0, 
             survivorTurns: 0, respawnHappened: false, currentBattle: null,
-            hostCosmetics: data.cosmetics || {},
             players: [
-                { id: socket.id, name: data.user, slot: 0, ...CORNERS[0], mana, rankLabel: getFullRankLabel(mana), alive: true, isAI: false, color: PLAYER_COLORS[0], quit: false, powerUp: null, isAdmin: (data.user === ADMIN_NAME), turnsWithoutBattle: 0, turnsWithoutPvP: 0, isStunned: false, stunDuration: 0, skin: data.cosmetics?.skin || null },
-                { id: 'ai1', name: AI_NAMES[1], slot: 1, ...CORNERS[1], mana: 200, rankLabel: "Lower D-Rank", alive: true, isAI: true, color: PLAYER_COLORS[1], quit: false, powerUp: null, turnsWithoutBattle: 0, turnsWithoutPvP: 0, isStunned: false, stunDuration: 0, skin: null },
-                { id: 'ai2', name: AI_NAMES[2], slot: 2, ...CORNERS[2], mana: 233, rankLabel: "Higher D-Rank", alive: true, isAI: true, color: PLAYER_COLORS[2], quit: false, powerUp: null, turnsWithoutBattle: 0, turnsWithoutPvP: 0, isStunned: false, stunDuration: 0, skin: null },
-                { id: 'ai3', name: AI_NAMES[3], slot: 3, ...CORNERS[3], mana: 200, rankLabel: "Lower D-Rank", alive: true, isAI: true, color: PLAYER_COLORS[3], quit: false, powerUp: null, turnsWithoutBattle: 0, turnsWithoutPvP: 0, isStunned: false, stunDuration: 0, skin: null }
+                { id: socket.id, name: data.user, slot: 0, ...CORNERS[0], mana, rankLabel: getFullRankLabel(mana), alive: true, isAI: false, color: PLAYER_COLORS[0], quit: false, powerUp: null, isAdmin: (data.user === ADMIN_NAME), turnsWithoutBattle: 0, turnsWithoutPvP: 0, isStunned: false, stunDuration: 0, skin: data.cosmetics?.skin || null, activeCosmetics: data.cosmetics || {} },
+                { id: 'ai1', name: AI_NAMES[1], slot: 1, ...CORNERS[1], mana: 200, rankLabel: "Lower D-Rank", alive: true, isAI: true, color: PLAYER_COLORS[1], quit: false, powerUp: null, turnsWithoutBattle: 0, turnsWithoutPvP: 0, isStunned: false, stunDuration: 0, skin: null, activeCosmetics: {} },
+                { id: 'ai2', name: AI_NAMES[2], slot: 2, ...CORNERS[2], mana: 233, rankLabel: "Higher D-Rank", alive: true, isAI: true, color: PLAYER_COLORS[2], quit: false, powerUp: null, turnsWithoutBattle: 0, turnsWithoutPvP: 0, isStunned: false, stunDuration: 0, skin: null, activeCosmetics: {} },
+                { id: 'ai3', name: AI_NAMES[3], slot: 3, ...CORNERS[3], mana: 200, rankLabel: "Lower D-Rank", alive: true, isAI: true, color: PLAYER_COLORS[3], quit: false, powerUp: null, turnsWithoutBattle: 0, turnsWithoutPvP: 0, isStunned: false, stunDuration: 0, skin: null, activeCosmetics: {} }
             ],
             world: {},
             afkTimer: null
@@ -473,7 +481,15 @@ function startGame(room) {
     room.active = true;
     for(let i=0; i<5; i++) spawnMonolith(room);
     io.to(room.id).emit('gameStart', { roomId: room.id });
-    io.to(room.id).emit('playMusic', 'gameplay.mp3');
+    
+    // PLAYER BOUND GAMEPLAY MUSIC
+    room.players.forEach(p => {
+        if (!p.isAI) {
+            const track = p.activeCosmetics?.music || 'gameplay.mp3';
+            io.to(p.id).emit('playMusic', track);
+        }
+    });
+
     broadcastGameState(room);
 }
 
@@ -619,19 +635,16 @@ function finishTurn(room) {
         justPlayed.turnsWithoutBattle++;
         justPlayed.turnsWithoutPvP++;
 
-        // --- FIXED COWARDLY/EXHAUSTED LOGIC ---
-        // Stun resets happen IMMEDIATELY upon stun, not upon recovery, 
-        // to prevent Exhausted loops from hiding Cowardly loops.
         if (justPlayed.turnsWithoutPvP >= 10 && !justPlayed.isStunned) {
             justPlayed.isStunned = true;
             justPlayed.stunDuration = 2;
-            justPlayed.turnsWithoutPvP = 0; // RESET
+            justPlayed.turnsWithoutPvP = 0; 
             io.to(room.id).emit('announcement', `${justPlayed.name} is COWARDLY (No PvP)! STUNNED for 2 Turns!`);
         }
         else if (justPlayed.turnsWithoutBattle >= 5 && !justPlayed.isStunned) {
             justPlayed.isStunned = true;
             justPlayed.stunDuration = 1;
-            justPlayed.turnsWithoutBattle = 0; // RESET
+            justPlayed.turnsWithoutBattle = 0; 
             io.to(room.id).emit('announcement', `${justPlayed.name} is EXHAUSTED (No Battle)! STUNNED for 1 Turn!`);
         }
     }
@@ -869,21 +882,31 @@ function teleport(p) { p.x = rInt(15); p.y = rInt(15); }
 function rInt(max) { return Math.floor(Math.random() * max); }
 
 async function broadcastGameState(room) {
-    const { afkTimer, ...roomState } = room; 
+    const { afkTimer, hostCosmetics, ...roomState } = room; 
     
     const sockets = await io.in(room.id).fetchSockets();
 
     for (const socket of sockets) {
         const isSocketAdmin = (socket.id === adminSocketId);
+        const targetPlayer = room.players.find(p => p.id === socket.id);
         
         const sanitized = room.players.map(pl => ({
             ...pl,
+            activeCosmetics: undefined, // Prevent leaking other players' hidden settings
             mana: (pl.id === socket.id || isSocketAdmin) ? pl.mana : null,
             powerUp: (pl.id === socket.id) ? pl.powerUp : (isSocketAdmin && pl.powerUp ? '?' : null),
             displayRank: getDisplayRank(pl.mana)
         }));
 
-        socket.emit('gameStateUpdate', { ...roomState, players: sanitized, currentBattle: room.currentBattle });
+        // Dynamically replace hostCosmetics with the personal cosmetics for this specific socket
+        const personalCosmetics = targetPlayer ? targetPlayer.activeCosmetics : {};
+
+        socket.emit('gameStateUpdate', { 
+            ...roomState, 
+            hostCosmetics: personalCosmetics, 
+            players: sanitized, 
+            currentBattle: room.currentBattle 
+        });
     }
 }
 
