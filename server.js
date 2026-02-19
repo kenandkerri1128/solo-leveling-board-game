@@ -65,7 +65,6 @@ async function dbUpdateHunter(username, points, isWin) {
     } catch(e) {}
 }
 
-// --- RANKING UTILS ---
 function getFullRankLabel(val) {
     if (val >= 1000) return "Higher S-Rank";
     if (val >= 901) return "Lower S-Rank";
@@ -122,7 +121,7 @@ async function getWorldRankDisplay(username) {
     } catch(e) { return { label: '#??', color: '#888' }; }
 }
 
-async function broadcastWorldRankings() {
+async function broadcastWorldRankings(targetSocket = null) {
     try {
         const { data } = await supabase.from('Hunters').select('username, hunterpoints, wins, losses').order('hunterpoints', { ascending: false }).limit(100);
         if (data) {
@@ -131,7 +130,8 @@ async function broadcastWorldRankings() {
                 rankLabel: getFullRankLabel(r.hunterpoints),
                 isAdmin: r.username === ADMIN_NAME 
             }));
-            io.emit('updateWorldRankings', list);
+            if(targetSocket) targetSocket.emit('updateWorldRankings', list);
+            else io.emit('updateWorldRankings', list);
         }
     } catch(e) {}
 }
@@ -153,6 +153,39 @@ io.on('connection', (socket) => {
         }
         connectedDevices[deviceId] = socket.id;
     }
+
+    // --- NEW: ADMIN MASTER VAULT LOADER ---
+    socket.on('requestAdminVault', () => {
+        if (socket.id !== adminSocketId) return;
+        const items = [];
+        
+        const skinDir = path.join(__dirname, 'public', 'uploads', 'skins');
+        if (fs.existsSync(skinDir)) {
+            fs.readdirSync(skinDir).forEach(f => {
+                if(f.endsWith('.png') || f.endsWith('.jpg')) {
+                    items.push(`skin:${f}`);
+                    items.push(`monolith:${f}`);
+                    items.push(`eagle:${f}`);
+                }
+            });
+        }
+        
+        const bgDir = path.join(__dirname, 'public', 'uploads', 'bg');
+        if (fs.existsSync(bgDir)) {
+            fs.readdirSync(bgDir).forEach(f => {
+                if(f.endsWith('.png') || f.endsWith('.jpg') || f.endsWith('.jpeg')) items.push(`bg:${f}`);
+            });
+        }
+
+        const musicDir = path.join(__dirname, 'public', 'uploads', 'music');
+        if (fs.existsSync(musicDir)) {
+            fs.readdirSync(musicDir).forEach(f => {
+                if(f.endsWith('.mp3') || f.endsWith('.wav')) items.push(`music:${f}`);
+            });
+        }
+        
+        socket.emit('adminVaultData', items);
+    });
 
     socket.on('adminAction', async (data) => {
         if (socket.id !== adminSocketId) return; 
@@ -188,24 +221,19 @@ io.on('connection', (socket) => {
             if (!found) socket.emit('adminSearchResponse', { found: false, message: "PLAYER NOT IN A MATCH" });
         }
 
-        // --- UPDATED: DEV TOOL TO GRANT ANY FILENAME ---
         if (data.action === 'grantItem') {
             try {
                 const { data: u } = await supabase.from('Hunters').select('inventory').eq('username', data.target).single();
                 if (u) {
                     let inv = u.inventory || [];
-                    // data.item will look like "skin:premium.png"
                     if (!inv.includes(data.item)) {
                         inv.push(data.item);
                         await supabase.from('Hunters').update({ inventory: inv }).eq('username', data.target);
                         
-                        // Sync live
                         const targetSocketId = connectedUsers[data.target];
                         if (targetSocketId) {
                             const { data: freshUser } = await supabase.from('Hunters').select('inventory, active_cosmetics').eq('username', data.target).single();
                             io.to(targetSocketId).emit('inventoryUpdate', { inventory: freshUser.inventory, activeCosmetics: freshUser.active_cosmetics });
-                            
-                            // Get just the filename for the display alert
                             const displayName = data.item.split(':')[1];
                             io.to(targetSocketId).emit('announcement', `SYSTEM: YOU RECEIVED A NEW ITEM - ${displayName}`);
                         }
@@ -261,31 +289,28 @@ io.on('connection', (socket) => {
             });
             
             socket.join('profile_page');
-            if(!reconnected) { syncAllMonoliths(); broadcastWorldRankings(); }
+            if(!reconnected) { syncAllMonoliths(); broadcastWorldRankings(socket); }
         } else {
             socket.emit('authError', "INVALID CREDENTIALS.");
         }
     });
 
-    // --- UPDATED: EQUIP ITEM PARSING ---
     socket.on('equipItem', async (data) => {
         try {
             const { data: user } = await supabase.from('Hunters').select('inventory, active_cosmetics').eq('username', data.username).single();
-            
-            // Reconstruct the DB formatted string (e.g. "skin:premium.png")
             const invString = `${data.type}:${data.item}`;
             
-            if (user && (user.inventory || []).includes(invString)) {
+            // Allow admin to equip anything dynamically, players must own it
+            const isAdmin = (data.username === ADMIN_NAME);
+            
+            if (isAdmin || (user && (user.inventory || []).includes(invString))) {
                 let cosmetics = user.active_cosmetics || {};
-                
-                // Toggle logic
                 if (cosmetics[data.type] === data.item) cosmetics[data.type] = null;
                 else cosmetics[data.type] = data.item;
 
                 await supabase.from('Hunters').update({ active_cosmetics: cosmetics }).eq('username', data.username);
                 socket.emit('inventoryUpdate', { inventory: user.inventory, activeCosmetics: cosmetics });
 
-                // Update live in-game changes
                 for (const roomId in rooms) {
                     const r = rooms[roomId];
                     const player = r.players.find(p => p.name === data.username);
@@ -319,7 +344,7 @@ io.on('connection', (socket) => {
     });
 
     socket.on('requestGateList', syncAllMonoliths);
-    socket.on('requestWorldRankings', broadcastWorldRankings);
+    socket.on('requestWorldRankings', () => broadcastWorldRankings(socket));
 
     socket.on('createGate', async (data) => {
         const id = `monolith_${Date.now()}`;
