@@ -40,6 +40,7 @@ app.use('/uploads', express.static(path.join(__dirname, 'public', 'uploads')));
 let rooms = {};
 let connectedUsers = {}; 
 let connectedDevices = {}; 
+let pendingDisconnects = {}; // NEW: Tracks users who disconnected so we can give them a grace period to refresh
 let adminSocketId = null;
 
 // CONSTANTS
@@ -278,6 +279,12 @@ io.on('connection', (socket) => {
 
         const { data: user } = await supabase.from('Hunters').select('*').eq('username', data.u).eq('password', data.p).maybeSingle();
         if (user) {
+            // NEW: If the user just refreshed, cancel their "tab close" penalty timer
+            if (pendingDisconnects[user.username]) {
+                clearTimeout(pendingDisconnects[user.username]);
+                delete pendingDisconnects[user.username];
+            }
+
             connectedUsers[user.username] = socket.id;
             if(user.username === ADMIN_NAME) adminSocketId = socket.id;
 
@@ -327,7 +334,6 @@ io.on('connection', (socket) => {
             
             const isAdmin = (data.username === ADMIN_NAME);
             
-            // SECURITY CHECK: Ensure they actually own it before equipping!
             if (isAdmin || (user && (user.inventory || []).includes(invString))) {
                 let cosmetics = user.active_cosmetics || {};
                 if (cosmetics[data.type] === data.item) cosmetics[data.type] = null;
@@ -514,11 +520,27 @@ io.on('connection', (socket) => {
 
     socket.on('quitGame', () => handleDisconnect(socket, true));
     
+    // NEW: Grace Period Tab-Close Check
     socket.on('disconnect', () => {
         if (deviceId && connectedDevices[deviceId] === socket.id) {
             delete connectedDevices[deviceId];
         }
-        handleDisconnect(socket, false);
+
+        const username = Object.keys(connectedUsers).find(key => connectedUsers[key] === socket.id);
+
+        if (username) {
+            // Give them 15 seconds to refresh and reconnect
+            pendingDisconnects[username] = setTimeout(() => {
+                delete pendingDisconnects[username];
+                
+                // Only treat as a complete quit if they haven't reconnected
+                if (!connectedUsers[username] || connectedUsers[username] === socket.id) {
+                    handleDisconnect(socket, true); // Apply the full Quit Penalty
+                }
+            }, 15000); 
+        } else {
+            handleDisconnect(socket, false);
+        }
     });
 });
 
@@ -776,6 +798,7 @@ function handleWin(room, winnerName) {
     }, 6000);
 }
 
+// NEW: Refined HandleDisconnect to accurately apply penalties without double-triggering
 function handleDisconnect(socket, isQuit) {
     const room = Object.values(rooms).find(r => r.players.some(p => p.id === socket.id));
     if(room) {
@@ -795,11 +818,14 @@ function handleDisconnect(socket, isQuit) {
         }
 
         const p = room.players.find(pl => pl.id === socket.id);
-        if(isQuit) {
-            p.quit = true; p.alive = false; 
+        
+        // CHECK !p.quit to prevent double penalizing them if they already explicitly quit
+        if(isQuit && p && !p.quit) {
+            p.quit = true; 
+            p.alive = false; 
             
             const quitPenalty = room.isOnline ? -20 : -3;
-            dbUpdateHunter(p.name, quitPenalty, false);
+            dbUpdateHunter(p.name, quitPenalty, false); // Applies the HuP deduction and the Loss
             
             socket.leave(room.id);
             socket.emit('returnToProfile'); 
@@ -810,10 +836,15 @@ function handleDisconnect(socket, isQuit) {
 
             const activeHumans = room.players.filter(pl => !pl.quit && !pl.isAI);
             if(room.isOnline && activeHumans.length === 1) { handleWin(room, activeHumans[0].name); return; }
-            if(!room.isOnline) { delete rooms[room.id]; syncAllMonoliths(); return; }
+            if(!room.isOnline && activeHumans.length === 0) { delete rooms[room.id]; syncAllMonoliths(); return; }
             if(p === room.players[room.turn]) finishTurn(room);
         }
-        if(room.players.filter(pl => !pl.quit && !pl.isAI).length === 0) delete rooms[room.id]; 
+        
+        if(room.players.filter(pl => !pl.quit && !pl.isAI).length === 0) {
+            delete rooms[room.id]; 
+        } else if (rooms[room.id]) {
+            broadcastGameState(room); // Broadcast so remaining players see the person is greyed out
+        }
         syncAllMonoliths();
     }
     const u = Object.keys(connectedUsers).find(key => connectedUsers[key] === socket.id);
