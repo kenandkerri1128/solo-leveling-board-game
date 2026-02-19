@@ -505,7 +505,6 @@
             
             if (d.isAdmin) {
                 document.getElementById('admin-controls').style.display = 'flex';
-                // Admins no longer need requestAdminVault because inventory gets sent on authSuccess now
             }
 
             const currentScreen = document.querySelector('.screen.active').id;
@@ -548,17 +547,24 @@
             const grid = document.getElementById('inv-grid');
             grid.innerHTML = '';
             
-            // Get all items that match the requested tab
-            const itemsInTab = (myHunter.inventory || []).filter(obj => obj.type === type);
+            // 1. Grab ALL master items from the server
+            const allItems = myHunter.inventory || [];
+            // 2. Grab only what this specific player actually owns from the database
+            const ownedItems = myHunter.ownedItems || [];
+            
+            // Filter the master list down to just the tab we clicked on (e.g., 'skin')
+            const itemsInTab = allItems.filter(i => i.startsWith(type + ':')).map(i => i.split(':')[1]);
             
             if (itemsInTab.length === 0) {
                 grid.innerHTML = `<div style="color:#888; width:100%; text-align:center; margin-top:20px;">NO ITEMS FOUND IN SERVER FOLDER.</div>`;
                 return;
             }
 
-            itemsInTab.forEach(obj => {
-                const isEquipped = myHunter.activeCosmetics && myHunter.activeCosmetics[type] === obj.item;
-                const isOwned = obj.isUnlocked || myHunter.isAdmin;
+            itemsInTab.forEach(item => {
+                const invString = `${type}:${item}`;
+                // An item is unlocked if the player owns it OR if they are the admin
+                const isOwned = myHunter.isAdmin || ownedItems.includes(invString);
+                const isEquipped = myHunter.activeCosmetics && myHunter.activeCosmetics[type] === item;
 
                 const box = document.createElement('div');
                 box.style = `
@@ -571,11 +577,11 @@
                 if (type === 'music') preview = `<div style="font-size:3rem; margin:auto;">🎵</div>`;
                 else {
                     let folder = (type === 'bg') ? 'bg' : 'skins';
-                    preview = `<img src="/uploads/${folder}/${obj.item}" style="max-width:100%; max-height:80px; margin:auto; object-fit:contain; filter: ${isOwned ? 'none' : 'grayscale(100%) brightness(0.5)'};">`;
+                    preview = `<img src="/uploads/${folder}/${item}" style="max-width:100%; max-height:80px; margin:auto; object-fit:contain; filter: ${isOwned ? 'none' : 'grayscale(100%) brightness(0.5)'};">`;
                 }
 
-                // If locked, show padlock
-                let padlock = !isOwned ? `<div style="position:absolute; top:30%; font-size:2rem; text-shadow:0 0 10px black;">🔒</div>` : '';
+                // If locked, show padlock emoji over the image
+                let padlock = !isOwned ? `<div style="position:absolute; top:30%; font-size:2rem; text-shadow:0 0 10px black; z-index:5;">🔒</div>` : '';
 
                 let buttonLabel = "LOCKED";
                 let buttonClass = "";
@@ -587,16 +593,16 @@
                     buttonDisable = "";
                 }
 
-                let buttonsHTML = `<button class="sys-btn ${buttonClass}" style="min-width:0; width:100%; padding:5px; font-size:0.7rem; margin-top:auto;" onclick="equipItem('${type}', '${obj.item}')" ${buttonDisable}>${buttonLabel}</button>`;
+                let buttonsHTML = `<button class="sys-btn ${buttonClass}" style="min-width:0; width:100%; padding:5px; font-size:0.7rem; margin-top:auto;" onclick="equipItem('${type}', '${item}')" ${buttonDisable}>${buttonLabel}</button>`;
                 
                 if (myHunter.isAdmin) {
-                    buttonsHTML += `<button class="sys-btn danger" style="min-width:0; width:100%; padding:5px; font-size:0.7rem; margin-top:5px; border-color:#888;" onclick="openSendModal('${type}', '${obj.item}')">SEND ITEM</button>`;
+                    buttonsHTML += `<button class="sys-btn danger" style="min-width:0; width:100%; padding:5px; font-size:0.7rem; margin-top:5px; border-color:#888;" onclick="openSendModal('${type}', '${item}')">SEND ITEM</button>`;
                 }
 
                 box.innerHTML = `
                     ${padlock}
                     ${preview}
-                    <div style="font-size:0.6rem; margin-top:5px; word-break:break-all; text-align:center;">${obj.item}</div>
+                    <div style="font-size:0.6rem; margin-top:5px; word-break:break-all; text-align:center;">${item}</div>
                     ${buttonsHTML}
                 `;
                 grid.appendChild(box);
@@ -605,9 +611,10 @@
 
         function equipItem(type, item) { socket.emit('equipItem', { username: myHunter.username, type, item }); }
 
-        // Updated listener expects the object array
+        // Update listener to properly store both arrays
         socket.on('inventoryUpdate', (data) => {
             myHunter.inventory = data.inventory;
+            myHunter.ownedItems = data.ownedItems;
             myHunter.activeCosmetics = data.activeCosmetics;
             if (document.getElementById('screen-inventory').classList.contains('active')) {
                 renderInventory(currentInvTab);
@@ -884,7 +891,6 @@
             el.innerText = `[SYSTEM]: ${msg}`;
             feed.prepend(el);
             
-            // Fix: If it's a locked item alert, show a standard JS alert so the player definitely sees it
             if(msg.includes("ITEM LOCKED")) {
                 alert(msg);
             }
