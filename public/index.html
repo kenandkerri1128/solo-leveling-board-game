@@ -3,11 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>HUNTER SYSTEM - ORIGIN</title>
+    <title>ORIGIN: MANA SIEGE</title>
     <script src="/socket.io/socket.io.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Exo+2:ital,wght@1,900&family=Orbitron:wght@400;900&display=swap" rel="stylesheet">
     <style>
-        /* UPDATED COLOR PALETTE */
         :root { 
             --sys-blue: #00d2ff; 
             --sys-gold: #ffcc00; 
@@ -34,7 +33,6 @@
 
         h1, h2, h3 { font-family: 'Orbitron'; font-style: italic; color: var(--sys-blue); text-shadow: 0 0 10px var(--sys-blue); margin: 5px 0; }
         
-        /* Layouts */
         .screen { 
             display: none; 
             flex-direction: column; 
@@ -50,7 +48,6 @@
         }
         .active { display: flex !important; }
         
-        /* --- FIX FOR PC/DESKTOP UI --- */
         #screen-game {
             flex-direction: row; 
             justify-content: center;
@@ -58,9 +55,9 @@
             width: 100vw;
             height: 100vh;
             overflow: hidden;
+            background-color: #000;
         }
 
-        /* UI Elements */
         .sys-btn { 
             background: #000; 
             border: 2px solid var(--sys-blue); 
@@ -102,15 +99,12 @@
         }
         .sys-input::placeholder { color: #444; }
 
-        /* Auth Screen */
         #screen-auth { background: radial-gradient(circle at center, #111 0%, #000 100%); }
         #auth-msg { color: var(--rank-s); font-family: 'Orbitron'; height: 20px; font-size: 0.9rem; margin-bottom: 10px; text-shadow: 0 0 5px var(--rank-s); }
 
-        /* Profile & Menu */
         .profile-container { display: flex; width: 95vw; height: 90vh; gap: 20px; }
         .menu-section { border: 1px solid #222; background: rgba(10,10,10,0.8); padding: 20px; display: flex; flex-direction: column; }
         
-        /* RESPONSIVE GAME BOARD */
         #game-wrapper {
             display: flex;
             flex: 1; 
@@ -124,7 +118,7 @@
             display: grid; 
             grid-template-columns: repeat(15, 1fr); 
             gap: 1px; 
-            background: #111; 
+            background: rgba(17, 17, 17, 0.8); 
             border: 2px solid var(--sys-blue); 
             box-shadow: 0 0 20px rgba(0, 210, 255, 0.2); 
             width: 80vmin; 
@@ -136,9 +130,9 @@
         .cell { 
             width: 100%; 
             height: 100%; 
-            background: #050505; 
+            background: rgba(5, 5, 5, 0.9); 
             position: relative; 
-            border: 0.5px solid #1a1a1a; 
+            border: 0.5px solid rgba(26, 26, 26, 0.5); 
             transition: background 0.2s; 
             display: flex;
             justify-content: center;
@@ -147,13 +141,13 @@
         .valid-move { box-shadow: inset 0 0 0 1px var(--sys-blue); cursor: pointer; background: rgba(0, 210, 255, 0.1); z-index: 5; }
         .valid-move:hover { background: rgba(0, 210, 255, 0.3); }
 
-        /* --- NEW VISUALS: MONOLITHS & EAGLE --- */
+        /* --- VISUALS: MONOLITHS & EAGLE --- */
         .monolith {
-            width: 60%;
+            width: 50%;
             height: 80%;
             background: currentColor;
-            clip-path: polygon(50% 0%, 100% 20%, 80% 100%, 20% 100%, 0% 20%);
-            box-shadow: 0 0 10px currentColor;
+            clip-path: polygon(50% 0%, 100% 15%, 80% 100%, 20% 100%, 0% 15%);
+            filter: drop-shadow(0 0 8px currentColor);
             position: absolute;
             bottom: 10%;
         }
@@ -162,7 +156,6 @@
             width: 80%;
             height: 80%;
             background: white;
-            /* Stylized Eagle/Wings shape */
             clip-path: polygon(50% 0%, 100% 30%, 80% 60%, 50% 100%, 20% 60%, 0% 30%);
             box-shadow: 0 0 15px white, inset 0 0 10px #ccc;
             animation: pulse-silver 1.5s infinite alternate;
@@ -170,9 +163,24 @@
             z-index: 2;
         }
 
+        /* For Custom Skins uploaded to DB */
+        .custom-skin {
+            position: absolute; bottom: 10%; left: 50%; transform: translateX(-50%); 
+            width: 80%; height: 80%; pointer-events: none; z-index: 10;
+            background-size: contain;
+            background-position: center;
+            background-repeat: no-repeat;
+            filter: drop-shadow(0 0 5px currentColor); 
+        }
+
+        .silver-eagle-glow { animation: pulse-custom-eagle 1.5s infinite alternate; }
+        @keyframes pulse-custom-eagle {
+            0% { filter: drop-shadow(0 0 5px white) brightness(1); }
+            100% { filter: drop-shadow(0 0 15px white) brightness(1.2); }
+        }
+
         @keyframes pulse-silver { 0% { filter: brightness(1); transform: scale(1); } 100% { filter: brightness(1.5); transform: scale(1.05); } }
 
-        /* --- CHARACTER CSS --- */
         /* Scaled Humanoid (Default) */
         .humanoid { 
             position: absolute; bottom: 10%; left: 50%; transform: translateX(-50%); 
@@ -182,17 +190,6 @@
         .h-head { width: 40%; height: 30%; border-radius: 50%; border: 1px solid white; box-shadow: 0 0 2px currentColor; background: black;}
         .h-body { width: 80%; height: 50%; border: 1px solid white; border-radius: 4px 4px 0 0; margin-top: 1px; box-shadow: 0 0 2px currentColor; background: black; }
         
-        /* Custom Skin CSS */
-        .custom-skin {
-            position: absolute; bottom: 10%; left: 50%; transform: translateX(-50%); 
-            width: 80%; height: 80%; pointer-events: none; z-index: 10;
-            background-size: contain;
-            background-position: center;
-            background-repeat: no-repeat;
-            /* Add a subtle glow matching their color */
-            filter: drop-shadow(0 0 2px currentColor); 
-        }
-
         .name-tag { 
             position: absolute; top: -15px; left: 50%; transform: translateX(-50%); 
             font-size: 0.6em; white-space: nowrap; font-weight: 900; 
@@ -212,48 +209,24 @@
         .admin-glow { color: var(--sys-gold) !important; text-shadow: 0 0 10px var(--sys-gold); }
         .admin-msg { border-left: 2px solid var(--sys-gold); padding-left: 5px; background: rgba(255, 204, 0, 0.05); }
 
-        /* VS Screen */
         #vs-panel { display: none; background: rgba(10,0,0,0.95); border: 2px solid var(--rank-s); padding: 10px; margin-bottom: 10px; flex-direction: column; align-items: center; box-shadow: 0 0 20px var(--rank-s); }
         .v-fill { height: 8px; background: var(--rank-s); width: 0%; margin-top: 10px; box-shadow: 0 0 10px var(--rank-s); }
 
-        /* Rank Guide */
         .rank-table { width: 100%; font-size: 0.7rem; border-collapse: collapse; color: #888; margin-top: auto; }
         .rank-table td { border-bottom: 1px solid #222; padding: 2px; }
 
-        /* Overlays */
         #transition-overlay { position: fixed; inset: 0; background: #000; z-index: 9999; display: none; align-items: center; justify-content: center; flex-direction: column; pointer-events: none; opacity: 0; transition: opacity 0.5s; }
         .loader-ring { width: 80px; height: 80px; border: 5px solid #111; border-top: 5px solid var(--sys-blue); border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 20px; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
         
         #victory-screen { background: rgba(0,0,0,0.98); z-index: 10000; text-align: center; }
 
-        /* Gate List */
         .room-item { padding: 15px; border: 1px solid #333; margin-bottom: 5px; background: rgba(0,210,255,0.05); cursor: pointer; display: flex; justify-content: space-between; align-items: center; transition: 0.2s; }
         .room-item:hover { background: rgba(0,210,255,0.2); border-color: var(--sys-blue); }
 
-        /* HUD LAYOUTS (Desktop Default) */
-        .hud-left { 
-            width: 300px; 
-            display: flex; 
-            flex-direction: column; 
-            height: 100%; 
-            border-right: 1px solid #333; 
-            padding: 20px; 
-            box-sizing: border-box; 
-            flex-shrink: 0; 
-        }
-        .hud-right { 
-            width: 300px; 
-            display: flex; 
-            flex-direction: column; 
-            height: 100%; 
-            border-left: 1px solid #333; 
-            padding: 20px; 
-            box-sizing: border-box; 
-            flex-shrink: 0; 
-        }
+        .hud-left { width: 300px; display: flex; flex-direction: column; height: 100%; border-right: 1px solid #333; padding: 20px; box-sizing: border-box; flex-shrink: 0; }
+        .hud-right { width: 300px; display: flex; flex-direction: column; height: 100%; border-left: 1px solid #333; padding: 20px; box-sizing: border-box; flex-shrink: 0; }
 
-        /* --- MOBILE / TABLET RESPONSIVENESS --- */
         @media (max-width: 1024px) {
             h1 { font-size: 2.5rem !important; }
             h2 { font-size: 2rem !important; }
@@ -263,59 +236,18 @@
             
             #screen-lobby > div { flex-direction: column; height: 85vh; width: 95vw; }
             
-            #screen-game { 
-                flex-direction: column; 
-                justify-content: flex-start; 
-                padding: 10px 0;
-                overflow-y: scroll; 
-                height: 100vh;
-                gap: 10px;
-            }
-
-            #game-wrapper { 
-                order: 1; 
-                width: 100%;
-                flex: none; 
-                height: auto;
-                display: flex;
-                justify-content: center;
-            } 
+            #screen-game { flex-direction: column; justify-content: flex-start; padding: 10px 0; overflow-y: scroll; height: 100vh; gap: 10px; }
+            #game-wrapper { order: 1; width: 100%; flex: none; height: auto; display: flex; justify-content: center; } 
             
-            #game-board {
-                width: 90vmin; 
-                height: 90vmin;
-                max-width: 650px;
-                max-height: 650px;
-                gap: 1px;
-                border-width: 2px;
-            }
+            #game-board { width: 90vmin; height: 90vmin; max-width: 650px; max-height: 650px; gap: 1px; border-width: 2px; }
 
-            /* Adjust characters for smaller cells */
             .humanoid { width: 70%; height: 80%; bottom: 10%; }
             .h-head { width: 50%; height: 40%; }
             .h-body { width: 80%; height: 50%; }
             .name-tag { font-size: 8px; top: -12px; }
 
-            .hud-right { 
-                order: 2; 
-                width: 95%; 
-                border-left: none; 
-                border-top: 1px solid #333; 
-                padding: 10px 0; 
-                height: auto; 
-                min-height: auto;
-                flex-shrink: 1;
-            }
-            
-            .hud-left { 
-                order: 3; 
-                width: 95%; 
-                border-right: none; 
-                border-top: 1px solid #333; 
-                padding: 10px 0; 
-                height: 250px; 
-                flex-shrink: 1;
-            }
+            .hud-right { order: 2; width: 95%; border-left: none; border-top: 1px solid #333; padding: 10px 0; height: auto; min-height: auto; flex-shrink: 1; }
+            .hud-left { order: 3; width: 95%; border-right: none; border-top: 1px solid #333; padding: 10px 0; height: 250px; flex-shrink: 1; }
 
             .rank-table { display: none; } 
             .sys-btn { width: 100%; margin: 5px 0; }
@@ -339,7 +271,7 @@
     </div>
 
     <div id="screen-auth" class="screen active">
-        <h1 style="font-size: 3rem; letter-spacing: 5px; margin-bottom: 20px; text-align: center;">HUNTER SYSTEM</h1>
+        <h1 style="font-size: 3rem; letter-spacing: 5px; margin-bottom: 20px; text-align: center;">ORIGIN: MANA SIEGE</h1>
         <div id="auth-msg"></div>
         <input type="text" id="u" class="sys-input" placeholder="HUNTER NAME">
         <input type="password" id="p" class="sys-input" placeholder="ACCESS KEY">
@@ -347,6 +279,20 @@
             <button class="sys-btn" onclick="auth('login')">LOGIN</button>
             <button class="sys-btn" style="border-color:#444; color:#aaa;" onclick="auth('signup')">REGISTER</button>
         </div>
+    </div>
+
+    <div id="screen-inventory" class="screen">
+        <h2 style="margin-bottom: 20px; font-size: 2.5rem;">VAULT</h2>
+        <div style="display:flex; gap:10px; margin-bottom: 10px; flex-wrap: wrap; justify-content: center;">
+            <button class="sys-btn" onclick="renderInventory('skin')">SKINS</button>
+            <button class="sys-btn" onclick="renderInventory('bg')">BACKGROUNDS</button>
+            <button class="sys-btn" onclick="renderInventory('monolith')">MONOLITHS</button>
+            <button class="sys-btn" onclick="renderInventory('eagle')">EAGLES</button>
+            <button class="sys-btn" onclick="renderInventory('music')">MUSIC</button>
+        </div>
+        <div id="inv-grid" style="display:flex; gap:15px; flex-wrap:wrap; justify-content: center; width:80vw; height:50vh; overflow-y:auto; border:1px solid #333; background: rgba(0,0,0,0.5); padding: 15px;">
+            </div>
+        <button class="sys-btn danger" style="margin-top: 20px;" onclick="showScreen('screen-menu')">BACK</button>
     </div>
 
     <div id="screen-menu" class="screen">
@@ -375,9 +321,17 @@
                     <button class="sys-btn gold" style="width:100%; padding: 5px;" onclick="doAdmin('broadcast')">BROADCAST</button>
                     <input id="adm-search" class="sys-input" style="width:100%; padding: 5px; font-size: 0.8rem;" placeholder="Spectate Player">
                     <button class="sys-btn" style="width:100%; padding: 5px;" onclick="doAdmin('search')">SEARCH & WATCH</button>
+                    
+                    <div style="display:flex; gap:5px; width:100%;">
+                        <input id="adm-grant-user" class="sys-input" style="width:50%; padding: 5px; font-size: 0.8rem; margin:0;" placeholder="Username">
+                        <input id="adm-grant-item" class="sys-input" style="width:50%; padding: 5px; font-size: 0.8rem; margin:0;" placeholder="skin_x.png">
+                    </div>
+                    <button class="sys-btn gold" style="width:100%; padding: 5px;" onclick="doAdmin('grantItem')">GRANT ITEM</button>
                 </div>
 
                 <div style="margin-top: auto; display: flex; flex-direction: column; gap: 10px; width: 100%;">
+                    <button class="sys-btn" style="width: 100%; border-color:var(--sys-gold); color:var(--sys-gold);" onclick="showScreen('screen-inventory'); renderInventory('skin');">VAULT (INVENTORY)</button>
+                    
                     <button class="sys-btn gold" style="width: 100%;" onclick="startAI('Eagle')">EAGLE MODE (+5)</button>
                     <button class="sys-btn" style="width: 100%; border-color:var(--sys-blue); color:var(--sys-blue);" onclick="window.open('/guide.html', '_blank')">SYSTEM GUIDE</button>
                     <button class="sys-btn" style="width: 100%;" onclick="openOnlineLobby()">MULTIPLAYER</button>
@@ -480,7 +434,6 @@
     </div>
 
     <script>
-        // --- 1. DEVICE FINGERPRINT SYSTEM ---
         let myDeviceId = localStorage.getItem('hunter_device_id');
         if (!myDeviceId) {
             myDeviceId = 'dev_' + Math.random().toString(36).substr(2, 9) + '_' + Date.now();
@@ -499,6 +452,7 @@
         let currentGateID = null;
         let currentHunterPowerUp = null;
         let currentGameState = null; 
+        let currentInvTab = 'skin';
 
         const POWER_ICONS = { 
             'DOUBLE DAMAGE': '⚔️', 
@@ -513,8 +467,9 @@
             if(!name) return; 
             if (currentBGM !== name) {
                 currentBGM = name;
-                // IF WE ADD STORE MUSIC LATER, WE CAN PATH IT THROUGH /uploads/music/ OR /music/
-                BGM.src = `/music/${name}`;
+                // Check if custom music from DB
+                if(name.startsWith('music_')) BGM.src = `/uploads/music/${name}`;
+                else BGM.src = `/music/${name}`;
                 BGM.play().catch(()=>{});
             }
         }
@@ -600,6 +555,53 @@
             if(d.music) playTrack(d.music);
         });
 
+        // --- INVENTORY LOGIC ---
+        function renderInventory(type) {
+            currentInvTab = type;
+            const grid = document.getElementById('inv-grid');
+            grid.innerHTML = '';
+            
+            const items = (myHunter.inventory || []).filter(i => i.startsWith(type + '_'));
+            
+            if (items.length === 0) {
+                grid.innerHTML = '<div style="color:#888; width:100%; text-align:center; margin-top:20px;">NO ITEMS FOUND IN THIS VAULT SECTION.<br>VISIT THE STORE SOON!</div>';
+                return;
+            }
+
+            items.forEach(item => {
+                const isEquipped = myHunter.activeCosmetics && myHunter.activeCosmetics[type] === item;
+                const box = document.createElement('div');
+                box.style = `width: 120px; height: 160px; border: 2px solid ${isEquipped ? 'var(--sys-gold)' : '#444'}; display:flex; flex-direction:column; align-items:center; padding:5px; background: rgba(0,0,0,0.8);`;
+                
+                let preview = '';
+                if (type === 'music') preview = `<div style="font-size:3rem; margin:auto;">🎵</div>`;
+                else {
+                    let folder = (type === 'bg') ? 'bg' : 'skins';
+                    preview = `<img src="/uploads/${folder}/${item}" style="max-width:100%; max-height:80px; margin:auto; object-fit:contain;">`;
+                }
+
+                box.innerHTML = `
+                    ${preview}
+                    <div style="font-size:0.6rem; margin-top:5px; word-break:break-all; text-align:center;">${item}</div>
+                    <button class="sys-btn ${isEquipped ? 'gold' : ''}" style="min-width:0; width:100%; padding:5px; font-size:0.7rem; margin-top:auto;" onclick="equipItem('${type}', '${item}')">${isEquipped ? 'UNEQUIP' : 'EQUIP'}</button>
+                `;
+                grid.appendChild(box);
+            });
+        }
+
+        function equipItem(type, item) {
+            socket.emit('equipItem', { username: myHunter.username, type, item });
+        }
+
+        socket.on('inventoryUpdate', (data) => {
+            myHunter.inventory = data.inventory;
+            myHunter.activeCosmetics = data.activeCosmetics;
+            if (document.getElementById('screen-inventory').classList.contains('active')) {
+                renderInventory(currentInvTab);
+            }
+        });
+
+        // --- CHAT SYSTEM ---
         let chatElement = null;
         function initChat() {
             const tpl = document.getElementById('chat-template');
@@ -642,10 +644,7 @@
         });
 
         socket.on('adminSearchResponse', (data) => {
-            if (!data.found) {
-                alert("SYSTEM: " + data.message);
-                return;
-            }
+            if (!data.found) { alert("SYSTEM: " + data.message); return; }
             if (confirm(`TARGET LOCATED: ${data.roomName}\nPLAYERS: ${data.players.length}/4\nSPECTATE MATCH?`)) {
                 socket.emit('spectateRoom', data.roomId);
                 currentGateID = data.roomId;
@@ -661,7 +660,8 @@
             if (id === 'screen-menu') { playTrack('menu.mp3'); moveChatTo('chat-global-anchor', 'profile_page'); }
             else if (id === 'screen-lobby') moveChatTo('chat-lobby-anchor', 'lobby_main');
             else if (id === 'screen-waiting') moveChatTo('chat-waiting-anchor', currentGateID);
-            else if (id === 'screen-game') { playTrack('gameplay.mp3'); moveChatTo('chat-game-anchor', currentGateID); }
+            else if (id === 'screen-game') { moveChatTo('chat-game-anchor', currentGateID); } // Music handled by hostCosmetics
+            else if (id === 'screen-inventory') { /* Keep profile music */ }
         }
 
         function transportAnimation(callback) {
@@ -713,20 +713,23 @@
             `;
             }).join('');
         }
-        socket.on('updateWorldRankings', (l) => { currentWorldRankings = l; renderRankings(); });
-
+        
         function doAdmin(action) {
             if (action === 'kick') socket.emit('adminAction', { action: 'kick', target: document.getElementById('adm-kick').value });
             if (action === 'broadcast') socket.emit('adminAction', { action: 'broadcast', message: document.getElementById('adm-bc').value });
             if (action === 'search') socket.emit('adminAction', { action: 'search', target: document.getElementById('adm-search').value });
+            if (action === 'grantItem') socket.emit('adminAction', { action: 'grantItem', target: document.getElementById('adm-grant-user').value, item: document.getElementById('adm-grant-item').value });
         }
 
         function openOnlineLobby() { if(!myHunter) return; showScreen('screen-lobby'); socket.emit('requestGateList'); }
-        function createGate() { const name = document.getElementById('room-name').value; if (name) socket.emit('createGate', { host: myHunter.username, name }); }
+        function createGate() { 
+            const name = document.getElementById('room-name').value; 
+            if (name) socket.emit('createGate', { host: myHunter.username, name, cosmetics: myHunter.activeCosmetics }); 
+        }
 
         socket.on('updateGateList', (list) => {
             const el = document.getElementById('room-list');
-            el.innerHTML = list.map(r => `<div class="room-item" onclick="socket.emit('joinGate', {gateID: '${r.id}', user: myHunter.username})"><span>${r.name} ${myHunter.isAdmin ? `<small style="color:red">[${r.id}]</small>` : ''}</span><span style="color:var(--sys-blue)">${r.count}/4</span></div>`).join('');
+            el.innerHTML = list.map(r => `<div class="room-item" onclick="socket.emit('joinGate', {gateID: '${r.id}', user: myHunter.username, cosmetics: myHunter.activeCosmetics})"><span>${r.name} ${myHunter.isAdmin ? `<small style="color:red">[${r.id}]</small>` : ''}</span><span style="color:var(--sys-blue)">${r.count}/4</span></div>`).join('');
         });
 
         socket.on('waitingRoomUpdate', (room) => {
@@ -743,10 +746,10 @@
 
         function playerConfirm() { if(currentGateID) socket.emit('playerConfirm', { gateID: currentGateID }); }
         function leaveWaitingRoom() { currentGateID = null; socket.emit('quitGame'); showScreen('screen-lobby'); socket.emit('requestGateList'); }
-        function startAI(diff) { transportAnimation(() => { socket.emit('startSoloAI', { user: myHunter.username, diff }); }); }
+        function startAI(diff) { transportAnimation(() => { socket.emit('startSoloAI', { user: myHunter.username, diff, cosmetics: myHunter.activeCosmetics }); }); }
         socket.on('gameStart', (data) => { currentGateID = data.roomId; transportAnimation(() => { showScreen('screen-game'); }); });
         function quitAction() { socket.emit('quitGame'); currentGateID = null; document.getElementById('victory-screen').style.display = 'none'; showScreen('screen-menu'); }
-        socket.on('returnToProfile', () => { currentGateID = null; document.getElementById('victory-screen').style.display = 'none'; showScreen('screen-menu'); });
+        socket.on('returnToProfile', () => { currentGateID = null; document.getElementById('victory-screen').style.display = 'none'; showScreen('screen-menu'); document.getElementById('screen-game').style.backgroundImage = 'none';});
 
         socket.on('gameStateUpdate', (state) => {
             if (!state.active) return;
@@ -758,6 +761,16 @@
             
             if(turnPlayer.isStunned) { ind.innerText = `>> ${turnPlayer.name.toUpperCase()} IS STUNNED (SKIP)`; ind.style.color = '#888'; } 
             else { ind.innerText = isMyTurn ? ">> YOUR TURN" : `>> ${turnPlayer.name.toUpperCase()}'S TURN`; ind.style.color = turnPlayer.color; }
+
+            // --- HOST COSMETICS RENDER (BG & MUSIC) ---
+            if (state.hostCosmetics?.bg) {
+                document.getElementById('screen-game').style.backgroundImage = `url('/uploads/bg/${state.hostCosmetics.bg}')`;
+                document.getElementById('screen-game').style.backgroundSize = 'cover';
+                document.getElementById('screen-game').style.backgroundPosition = 'center';
+            } else {
+                document.getElementById('screen-game').style.backgroundImage = 'none';
+            }
+            playTrack(state.hostCosmetics?.music || 'gameplay.mp3');
 
             const pBtn = document.getElementById('btn-powerup');
             if (me && me.alive && me.powerUp && state.processing && state.currentBattle) {
@@ -786,28 +799,37 @@
                 for(let x=0; x<15; x++) {
                     const cell = document.createElement('div'); cell.className = 'cell';
                     const key = `${x}-${y}`;
+                    
+                    // --- MONOLITH / EAGLE RENDERER ---
                     if (state.world[key]) {
                         if(state.world[key].rank === 'Eagle') {
-                            cell.innerHTML = `<div class="silver-eagle"></div>`;
+                            if (state.hostCosmetics?.eagle) {
+                                cell.innerHTML = `<div class="custom-skin silver-eagle-glow" style="background-image: url('/uploads/skins/${state.hostCosmetics.eagle}'); width: 90%; height: 90%;"></div>`;
+                            } else {
+                                cell.innerHTML = `<div class="silver-eagle"></div>`;
+                            }
                         } else {
-                            cell.style.color = state.world[key].color; // Set color context
-                            cell.innerHTML = `<div class="monolith"></div>`;
+                            cell.style.color = state.world[key].color; 
+                            if (state.hostCosmetics?.monolith) {
+                                cell.innerHTML = `<div class="custom-skin" style="filter: drop-shadow(0 0 5px currentColor); background-image: url('/uploads/skins/${state.hostCosmetics.monolith}'); width: 80%; height: 80%;"></div>`;
+                            } else {
+                                cell.innerHTML = `<div class="monolith"></div>`;
+                            }
                         }
                     }
                     
+                    // --- PLAYER RENDERER (Supports Skins) ---
                     const pAtCell = state.players.find(p => p.alive && p.x === x && p.y === y);
                     if (pAtCell) {
                          const stunStyle = pAtCell.isStunned ? 'opacity:0.5; filter:grayscale(100%);' : '';
                          
-                         // --- SKIN RENDER LOGIC ---
                          if (pAtCell.skin) {
-                             // Custom Skin Render
                              cell.innerHTML += `<div class="custom-skin" style="${stunStyle} background-image: url('/uploads/skins/${pAtCell.skin}'); color:${pAtCell.color};"><div class="name-tag" style="color:${pAtCell.color}">${pAtCell.isAdmin?'👑':''}${pAtCell.name}</div></div>`;
                          } else {
-                             // Default Render
                              cell.innerHTML += `<div class="humanoid" style="${stunStyle}"><div class="name-tag" style="color:${pAtCell.color}">${pAtCell.isAdmin?'👑':''}${pAtCell.name}</div><div class="h-head" style="border-color:${pAtCell.color};"></div><div class="h-body" style="border-color:${pAtCell.color};"></div></div>`;
                          }
                     }
+
                     if (isMyTurn && me && me.alive && !me.isStunned) {
                          const dx = Math.abs(me.x - x); const dy = Math.abs(me.y - y);
                          let isValid = false;
@@ -884,12 +906,12 @@
         }
         
         function getMoveRange(mana) {
-            if (mana >= 901) return 6; // S
-            if (mana >= 701) return 5; // A
-            if (mana >= 501) return 4; // B
-            if (mana >= 301) return 3; // C
-            if (mana >= 101) return 2; // D
-            return 1; // E
+            if (mana >= 901) return 6; 
+            if (mana >= 701) return 5; 
+            if (mana >= 501) return 4; 
+            if (mana >= 301) return 3; 
+            if (mana >= 101) return 2; 
+            return 1; 
         }
     </script>
 </body>
