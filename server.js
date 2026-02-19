@@ -8,7 +8,7 @@ const fs = require('fs');
 const app = express();
 const server = http.createServer(app);
 
-// CONNECTION URL: THIS MUST MATCH RENDER'S GENERATED DOMAIN
+// CONNECTION URL: https://solo-leveling-board-game.onrender.com
 const io = new Server(server, {
     cors: { origin: "*" },
     pingTimeout: 60000 
@@ -141,6 +141,17 @@ async function broadcastWorldRankings(targetSocket = null) {
 function syncAllMonoliths() {
     const list = Object.values(rooms).filter(r => r.isOnline && !r.active).map(r => ({ id: r.id, name: r.name, count: r.players.length }));
     io.emit('updateGateList', list); 
+
+    // ADMIN UPDATE: Send all active rooms specifically to the admin for easy spectating
+    if (adminSocketId) {
+        const activeRooms = Object.values(rooms).filter(r => r.active).map(r => ({
+            id: r.id,
+            name: r.name || `SOLO-GATE-${r.id.split('_')[2] || 'AI'}`,
+            isOnline: r.isOnline,
+            players: r.players.map(p => p.name).join(', ')
+        }));
+        io.to(adminSocketId).emit('updateAdminRoomList', activeRooms);
+    }
 }
 
 // --- MASTER INVENTORY GENERATOR ---
@@ -351,7 +362,6 @@ io.on('connection', (socket) => {
                     }
                 }
             } else {
-                // Sent back to frontend if they hack the UI and try to equip locked item
                 socket.emit('announcement', `SYSTEM: ITEM LOCKED. YOU MUST BUY OR BE GRANTED THIS ITEM.`);
             }
         } catch(e) { console.error(e); }
@@ -524,6 +534,7 @@ function startGame(room) {
     });
 
     broadcastGameState(room);
+    syncAllMonoliths(); // Refresh admin active games list
 }
 
 function processMove(room, player, tx, ty) {
