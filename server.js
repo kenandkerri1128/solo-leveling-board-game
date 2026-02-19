@@ -28,13 +28,11 @@ const uploadDirs = [
     path.join(__dirname, 'public', 'uploads', 'music')
 ];
 uploadDirs.forEach(dir => {
-    if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true });
-    }
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 });
 
 app.use(express.static(path.join(__dirname, 'public')));
-app.use('/uploads', express.static(path.join(__dirname, 'public', 'uploads'))); // Serve store assets
+app.use('/uploads', express.static(path.join(__dirname, 'public', 'uploads')));
 
 // GLOBAL STATE
 let rooms = {};
@@ -140,13 +138,12 @@ async function broadcastWorldRankings() {
 
 function syncAllMonoliths() {
     const list = Object.values(rooms).filter(r => r.isOnline && !r.active).map(r => ({ id: r.id, name: r.name, count: r.players.length }));
-    io.emit('updateGateList', list); // Kept event name for compatibility with index.html
+    io.emit('updateGateList', list); 
 }
 
 // --- SOCKET LOGIC ---
 io.on('connection', (socket) => {
     
-    // --- DEVICE LOCK ---
     const deviceId = socket.handshake.query.deviceId;
     if (deviceId) {
         if (connectedDevices[deviceId] && io.sockets.sockets.get(connectedDevices[deviceId])) {
@@ -157,14 +154,12 @@ io.on('connection', (socket) => {
         connectedDevices[deviceId] = socket.id;
     }
 
-    socket.on('adminAction', (data) => {
+    socket.on('adminAction', async (data) => {
         if (socket.id !== adminSocketId) return; 
         
-        // 1. KICK LOGIC
         if (data.action === 'kick' && connectedUsers[data.target]) {
             const tid = connectedUsers[data.target];
             const targetSocket = io.sockets.sockets.get(tid);
-            
             if (targetSocket) {
                 handleDisconnect(targetSocket, true); 
                 targetSocket.emit('forceKick');
@@ -173,37 +168,46 @@ io.on('connection', (socket) => {
             delete connectedUsers[data.target];
         }
         
-        // 2. BROADCAST LOGIC
         if (data.action === 'broadcast') {
             io.emit('receiveMessage', { sender: 'SYSTEM ADMIN', text: data.message, rank: 'ADMIN', timestamp: new Date().toLocaleTimeString(), isAdmin: true });
         }
 
-        // 3. SEARCH & SPECTATE LOGIC
         if (data.action === 'search') {
             const targetName = data.target;
             let found = false;
-            
             for (const roomId in rooms) {
                 const r = rooms[roomId];
                 const player = r.players.find(p => p.name === targetName);
-                
                 if (player) {
                     found = true;
-                    const adminViewPlayers = r.players.map(p => ({
-                        ...p,
-                        powerUp: (p.powerUp ? '?' : null) 
-                    }));
-
-                    socket.emit('adminSearchResponse', {
-                        found: true,
-                        roomId: r.id,
-                        roomName: r.name,
-                        players: adminViewPlayers
-                    });
+                    const adminViewPlayers = r.players.map(p => ({ ...p, powerUp: (p.powerUp ? '?' : null) }));
+                    socket.emit('adminSearchResponse', { found: true, roomId: r.id, roomName: r.name, players: adminViewPlayers });
                     break;
                 }
             }
             if (!found) socket.emit('adminSearchResponse', { found: false, message: "PLAYER NOT IN A MATCH" });
+        }
+
+        // DEV TOOL: GRANT ITEMS
+        if (data.action === 'grantItem') {
+            try {
+                const { data: u } = await supabase.from('Hunters').select('inventory').eq('username', data.target).single();
+                if (u) {
+                    let inv = u.inventory || [];
+                    if (!inv.includes(data.item)) {
+                        inv.push(data.item);
+                        await supabase.from('Hunters').update({ inventory: inv }).eq('username', data.target);
+                        
+                        // Sync live
+                        const targetSocketId = connectedUsers[data.target];
+                        if (targetSocketId) {
+                            const { data: freshUser } = await supabase.from('Hunters').select('inventory, active_cosmetics').eq('username', data.target).single();
+                            io.to(targetSocketId).emit('inventoryUpdate', { inventory: freshUser.inventory, activeCosmetics: freshUser.active_cosmetics });
+                            io.to(targetSocketId).emit('announcement', `SYSTEM: YOU RECEIVED A NEW ITEM - ${data.item}`);
+                        }
+                    }
+                }
+            } catch(e) {}
         }
     });
 
@@ -216,7 +220,7 @@ io.on('connection', (socket) => {
         if (data.type === 'signup') {
             const { data: existing } = await supabase.from('Hunters').select('username').eq('username', data.u).maybeSingle();
             if(existing) return socket.emit('authError', "USERNAME TAKEN.");
-            const { error } = await supabase.from('Hunters').insert([{ username: data.u, password: data.p, hunterpoints: 0 }]);
+            const { error } = await supabase.from('Hunters').insert([{ username: data.u, password: data.p, hunterpoints: 0, inventory: [], active_cosmetics: {} }]);
             if (error) return socket.emit('authError', "CREATION FAILED.");
         }
 
@@ -248,15 +252,42 @@ io.on('connection', (socket) => {
                 rank: getFullRankLabel(user.hunterpoints), color: RANK_COLORS[letter],
                 wins: user.wins||0, losses: user.losses||0, worldRank: (count||0)+1,
                 isAdmin: (user.username === ADMIN_NAME), music: reconnected ? null : 'menu.mp3',
-                activeSkin: user.active_skin || null // Future store compatibility
+                inventory: user.inventory || [],
+                activeCosmetics: user.active_cosmetics || {}
             });
             
             socket.join('profile_page');
-            
             if(!reconnected) { syncAllMonoliths(); broadcastWorldRankings(); }
         } else {
             socket.emit('authError', "INVALID CREDENTIALS.");
         }
+    });
+
+    socket.on('equipItem', async (data) => {
+        try {
+            const { data: user } = await supabase.from('Hunters').select('inventory, active_cosmetics').eq('username', data.username).single();
+            if (user && (user.inventory || []).includes(data.item)) {
+                let cosmetics = user.active_cosmetics || {};
+                
+                // Toggle logic (unequip if already equipped)
+                if (cosmetics[data.type] === data.item) cosmetics[data.type] = null;
+                else cosmetics[data.type] = data.item;
+
+                await supabase.from('Hunters').update({ active_cosmetics: cosmetics }).eq('username', data.username);
+                socket.emit('inventoryUpdate', { inventory: user.inventory, activeCosmetics: cosmetics });
+
+                // Update live in-game changes
+                for (const roomId in rooms) {
+                    const r = rooms[roomId];
+                    const player = r.players.find(p => p.name === data.username);
+                    if (player) {
+                        player.skin = cosmetics.skin || null;
+                        if (r.players[0].name === data.username) r.hostCosmetics = cosmetics; // Update board if host
+                        broadcastGameState(r);
+                    }
+                }
+            }
+        } catch(e) { console.error(e); }
     });
 
     socket.on('joinChatRoom', (rid) => { 
@@ -274,11 +305,8 @@ io.on('connection', (socket) => {
 
     socket.on('sendMessage', (data) => {
         const payload = { sender: data.senderName, text: data.message, rank: data.rank, timestamp: new Date().toLocaleTimeString(), isAdmin: (data.senderName === ADMIN_NAME) };
-        if (data.senderName === ADMIN_NAME && data.roomId === 'global') {
-            io.emit('receiveMessage', payload);
-        } else {
-            io.to(data.roomId).emit('receiveMessage', payload);
-        }
+        if (data.senderName === ADMIN_NAME && data.roomId === 'global') io.emit('receiveMessage', payload);
+        else io.to(data.roomId).emit('receiveMessage', payload);
     });
 
     socket.on('requestGateList', syncAllMonoliths);
@@ -293,12 +321,13 @@ io.on('connection', (socket) => {
             id, name: data.name, isOnline: true, active: false, processing: false,
             turn: 0, currentRoundMoves: 0, round: 1, spawnCounter: 0, 
             survivorTurns: 0, respawnHappened: false, currentBattle: null,
+            hostCosmetics: data.cosmetics || {}, // Bind custom maps to host
             players: [{ 
                 id: socket.id, name: data.host, slot: 0, ...CORNERS[0], 
                 mana, rankLabel: getFullRankLabel(mana), worldRankLabel: wr.label, 
                 alive: true, confirmed: false, color: PLAYER_COLORS[0], isAI: false, quit: false, powerUp: null,
                 isAdmin: (data.host === ADMIN_NAME), turnsWithoutBattle: 0, turnsWithoutPvP: 0, isStunned: false, stunDuration: 0,
-                skin: data.skin || null
+                skin: data.cosmetics?.skin || null
             }],
             world: {},
             afkTimer: null
@@ -321,7 +350,7 @@ io.on('connection', (socket) => {
                 mana, rankLabel: getFullRankLabel(mana), worldRankLabel: wr.label,
                 alive: true, confirmed: false, color: PLAYER_COLORS[slot], isAI: false, quit: false, powerUp: null,
                 isAdmin: (data.user === ADMIN_NAME), turnsWithoutBattle: 0, turnsWithoutPvP: 0, isStunned: false, stunDuration: 0,
-                skin: data.skin || null
+                skin: data.cosmetics?.skin || null
             });
             socket.join(data.gateID);
             io.to(data.gateID).emit('waitingRoomUpdate', r);
@@ -335,11 +364,8 @@ io.on('connection', (socket) => {
         if(r) {
             const p = r.players.find(pl => pl.id === socket.id);
             if(p) p.confirmed = true;
-            if(r.players.length >= 2 && r.players.every(pl => pl.confirmed)) {
-                startGame(r);
-            } else {
-                io.to(r.id).emit('waitingRoomUpdate', r);
-            }
+            if(r.players.length >= 2 && r.players.every(pl => pl.confirmed)) startGame(r);
+            else io.to(r.id).emit('waitingRoomUpdate', r);
         }
     });
 
@@ -351,8 +377,9 @@ io.on('connection', (socket) => {
             id, isOnline: false, active: false, processing: false, mode: data.diff,
             turn: 0, currentRoundMoves: 0, round: 1, spawnCounter: 0, 
             survivorTurns: 0, respawnHappened: false, currentBattle: null,
+            hostCosmetics: data.cosmetics || {},
             players: [
-                { id: socket.id, name: data.user, slot: 0, ...CORNERS[0], mana, rankLabel: getFullRankLabel(mana), alive: true, isAI: false, color: PLAYER_COLORS[0], quit: false, powerUp: null, isAdmin: (data.user === ADMIN_NAME), turnsWithoutBattle: 0, turnsWithoutPvP: 0, isStunned: false, stunDuration: 0, skin: data.skin || null },
+                { id: socket.id, name: data.user, slot: 0, ...CORNERS[0], mana, rankLabel: getFullRankLabel(mana), alive: true, isAI: false, color: PLAYER_COLORS[0], quit: false, powerUp: null, isAdmin: (data.user === ADMIN_NAME), turnsWithoutBattle: 0, turnsWithoutPvP: 0, isStunned: false, stunDuration: 0, skin: data.cosmetics?.skin || null },
                 { id: 'ai1', name: AI_NAMES[1], slot: 1, ...CORNERS[1], mana: 200, rankLabel: "Lower D-Rank", alive: true, isAI: true, color: PLAYER_COLORS[1], quit: false, powerUp: null, turnsWithoutBattle: 0, turnsWithoutPvP: 0, isStunned: false, stunDuration: 0, skin: null },
                 { id: 'ai2', name: AI_NAMES[2], slot: 2, ...CORNERS[2], mana: 233, rankLabel: "Higher D-Rank", alive: true, isAI: true, color: PLAYER_COLORS[2], quit: false, powerUp: null, turnsWithoutBattle: 0, turnsWithoutPvP: 0, isStunned: false, stunDuration: 0, skin: null },
                 { id: 'ai3', name: AI_NAMES[3], slot: 3, ...CORNERS[3], mana: 200, rankLabel: "Lower D-Rank", alive: true, isAI: true, color: PLAYER_COLORS[3], quit: false, powerUp: null, turnsWithoutBattle: 0, turnsWithoutPvP: 0, isStunned: false, stunDuration: 0, skin: null }
@@ -507,7 +534,6 @@ function resolveBattle(room, attacker, defender, isMonolith) {
                 if(battleDefender.rank === 'Eagle') return handleWin(room, battleAttacker.name);
                 if(!battleAttacker.powerUp && Math.random() < 0.2) {
                     battleAttacker.powerUp = POWER_UPS[Math.floor(Math.random() * POWER_UPS.length)];
-                    // Send to attacker only (even if AI - effectively hidden)
                     io.to(battleAttacker.id).emit('announcement', `OBTAINED RUNE: ${battleAttacker.powerUp}`);
                 }
             } else {
@@ -728,21 +754,18 @@ function spawnMonolith(room) {
     room.world[`${sx}-${sy}`] = { rank, color: RANK_COLORS[rank], mana: rInt(range[1]-range[0]) + range[0] };
 }
 
-// --- UPDATED AI MOVEMENT (STRICT RULES) ---
 function runAIMove(room, ai) {
     if(!room.active) return;
     let target = null;
     let minDist = 999;
     const range = getMoveRange(ai.mana);
 
-    // 1. SILVER EAGLE (Priority)
     const eagleKey = Object.keys(room.world).find(k => room.world[k].rank === 'Eagle');
     if (eagleKey) {
          const [sx, sy] = eagleKey.split('-').map(Number);
          target = {x: sx, y: sy};
     }
 
-    // 2. WEAK PLAYERS
     if (!target) {
         const killable = room.players.filter(p => p.id !== ai.id && p.alive && ai.mana >= p.mana);
         if(killable.length > 0) {
@@ -753,7 +776,6 @@ function runAIMove(room, ai) {
         }
     }
 
-    // 3. FARM MONOLITHS
     if (!target) {
         minDist = 999;
         for(const key in room.world) {
@@ -768,32 +790,24 @@ function runAIMove(room, ai) {
         const dx = target.x - ai.x; 
         const dy = target.y - ai.y;
         
-        // --- STRICT PLAYER MOVEMENT LOGIC (ZIG-ZAG) ---
-        // 1. If we are perfectly diagonal and 1 step away, take the 1 allowed diagonal step
         if (Math.abs(dx) === 1 && Math.abs(dy) === 1) {
              tx += dx;
              ty += dy;
         } 
         else {
-            // 2. Cardinal Movement (Zig-Zag approach)
-            // Move along X axis first if X distance is greater
             if (Math.abs(dx) >= Math.abs(dy)) {
                 let stepX = (dx > 0) ? Math.min(dx, range) : Math.max(dx, -range);
                 tx += stepX;
-            } 
-            // Move along Y axis first
-            else {
+            } else {
                 let stepY = (dy > 0) ? Math.min(dy, range) : Math.max(dy, -range);
                 ty += stepY;
             }
         }
     } else {
-        // Random move if no target
         tx = Math.max(0, Math.min(14, ai.x + (Math.random() < 0.5 ? 1 : -1)));
         ty = Math.max(0, Math.min(14, ai.y + (Math.random() < 0.5 ? 1 : -1)));
     }
 
-    // --- AI POWER UP USAGE ---
     if (ai.powerUp) {
         const enemy = room.players.find(p => p.alive && p.x === tx && p.y === ty && p.id !== ai.id);
         const monolith = room.world[`${tx}-${ty}`];
@@ -822,7 +836,6 @@ function rInt(max) { return Math.floor(Math.random() * max); }
 async function broadcastGameState(room) {
     const { afkTimer, ...roomState } = room; 
     
-    // FETCH ALL SOCKETS IN ROOM (Includes Players AND Spectating Admin)
     const sockets = await io.in(room.id).fetchSockets();
 
     for (const socket of sockets) {
@@ -830,14 +843,8 @@ async function broadcastGameState(room) {
         
         const sanitized = room.players.map(pl => ({
             ...pl,
-            // Admin sees EVERYONE'S Mana. Player sees only THEIR OWN.
             mana: (pl.id === socket.id || isSocketAdmin) ? pl.mana : null,
-            
-            // Admin sees '?' if powerup exists. Player sees their own actual powerup.
             powerUp: (pl.id === socket.id) ? pl.powerUp : (isSocketAdmin && pl.powerUp ? '?' : null),
-            
-            // Ensures active skins are sent over the socket to render for all players
-            skin: pl.skin, 
             displayRank: getDisplayRank(pl.mana)
         }));
 
