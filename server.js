@@ -696,8 +696,6 @@ function resolveBattle(room, attacker, defender, isMonolith) {
                 delete room.world[`${attacker.x}-${attacker.y}`];
                 if(bDef.rank === 'Eagle') return handleWin(room, bAtt.name);
                 
-                // FIX: Calculate the 2 weakest players overall (alive or dead). 
-                // If the attacker is one of them, give +5% drop chance.
                 let pChance = 0.20;
                 const allSorted = room.players.slice().sort((a, b) => a.mana - b.mana);
                 if (allSorted.length > 0 && (bAtt.id === allSorted[0].id || (allSorted.length > 1 && bAtt.id === allSorted[1].id))) {
@@ -840,6 +838,7 @@ function handleDisconnect(socket, isQuit) {
     if(u) delete connectedUsers[u];
 }
 
+// FIX: Players spawn in original corners to guarantee maximum spacing.
 function triggerRespawn(room, sid) {
     io.to(room.id).emit('announcement', "REAWAKENING PROTOCOL...");
     room.respawnHappened = true; 
@@ -854,7 +853,14 @@ function triggerRespawn(room, sid) {
     room.players.forEach(p => { 
         if(!p.quit) { 
             p.alive = true; 
-            teleport(p); 
+            
+            // Spawn players perfectly spaced out in their original corners
+            p.x = CORNERS[p.slot].x;
+            p.y = CORNERS[p.slot].y;
+            
+            // Remove any monolith that might have spawned on their corner to prevent instant death/glitches
+            delete room.world[`${p.x}-${p.y}`];
+
             p.mana += 500; 
             p.turnsWithoutBattle = 0;
             p.turnsWithoutPvP = 0;
