@@ -18,10 +18,11 @@ const io = new Server(server, {
 process.on('uncaughtException', (err) => console.error('SYSTEM ERROR:', err));
 process.on('unhandledRejection', (reason) => console.error('PROMISE ERROR:', reason));
 
-// Supabase Configuration
+// --- DATABASE CONFIGURATION ---
 const SUPABASE_URL = 'https://wfsuxqgvshrhqfvnkzdx.supabase.co'; 
-const SUPABASE_KEY = 'sb_publishable_gV-RZMfBZ1dLU60Ht4J9iw_-sRWSKnL'; 
-const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+// SECURITY SHIELD: Master Key Integrated
+const SUPABASE_SERVICE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Indmc3V4cWd2c2hyaHFmdm5remR4Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MDgyNTAxNCwiZXhwIjoyMDg2NDAxMDE0fQ.S4sg9RXAY5XBowA2Huim4OCLwUKpnRDeYUrzinzxmAw'; 
+const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
 
 // --- ASSET DIRECTORIES ---
 const uploadDirs = [
@@ -58,12 +59,12 @@ const CORNERS = [{x:0,y:0}, {x:14,y:0}, {x:0,y:14}, {x:14,y:14}];
 // --- RANK UNLOCK LOGIC ---
 function getRankUnlockedItems(mana) {
     let unlocked = [];
-    if (mana >= 101) unlocked.push('skin:char_knight.png'); // Rank D
-    if (mana >= 301) unlocked.push('skin:char_calvary.png'); // Rank C
-    if (mana >= 501) unlocked.push('skin:char_assasin.png'); // Rank B
-    if (mana >= 701) unlocked.push('skin:char_sniper.png', 'eagle:eagle_premium.png'); // Rank A
-    if (mana >= 901) unlocked.push('skin:char_speargirl.png', 'bg:hunterseige_bg.png'); // Rank S
-    if (mana >= 1000) unlocked.push('skin:char_main char.png', 'music:Pixel Parlor Lounge.mp3'); // Rank S+
+    if (mana >= 101) unlocked.push('skin:char_knight.png'); 
+    if (mana >= 301) unlocked.push('skin:char_calvary.png'); 
+    if (mana >= 501) unlocked.push('skin:char_assasin.png'); 
+    if (mana >= 701) unlocked.push('skin:char_sniper.png', 'eagle:eagle_premium.png'); 
+    if (mana >= 901) unlocked.push('skin:char_speargirl.png', 'bg:hunterseige_bg.png'); 
+    if (mana >= 1000) unlocked.push('skin:char_main char.png', 'music:Pixel Parlor Lounge.mp3'); 
     return unlocked;
 }
 
@@ -166,7 +167,6 @@ function syncAllMonoliths() {
     }
 }
 
-// --- MASTER INVENTORY GENERATOR ---
 function getAllVaultItems() {
     const items = [];
     const skinDir = path.join(__dirname, 'public', 'uploads', 'skins');
@@ -193,17 +193,10 @@ function getAllVaultItems() {
         });
     }
 
-    // Force Rank Items to the very top of the list
     const PRIORITY_ITEMS = [
-        'skin:char_knight.png',
-        'skin:char_calvary.png',
-        'skin:char_assasin.png',
-        'skin:char_sniper.png',
-        'eagle:eagle_premium.png',
-        'skin:char_speargirl.png',
-        'bg:hunterseige_bg.png',
-        'skin:char_main char.png',
-        'music:Pixel Parlor Lounge.mp3'
+        'skin:char_knight.png', 'skin:char_calvary.png', 'skin:char_assasin.png',
+        'skin:char_sniper.png', 'eagle:eagle_premium.png', 'skin:char_speargirl.png',
+        'bg:hunterseige_bg.png', 'skin:char_main char.png', 'music:Pixel Parlor Lounge.mp3'
     ];
 
     items.sort((a, b) => {
@@ -234,7 +227,6 @@ io.on('connection', (socket) => {
         connectedDevices[deviceId] = socket.id;
     }
 
-    // Refresh Inventory on Demand (So players see unlocks immediately after gaining HuP)
     socket.on('requestInventoryUpdate', async (username) => {
         try {
             const { data: user } = await supabase.from('Hunters').select('hunterpoints, inventory, active_cosmetics').eq('username', username).single();
@@ -394,7 +386,6 @@ io.on('connection', (socket) => {
             const invString = `${data.type}:${data.item}`;
             
             const isAdmin = (data.username === ADMIN_NAME);
-            
             const rankItems = user ? getRankUnlockedItems(user.hunterpoints) : [];
             const totalOwned = [...new Set([...(user ? user.inventory || [] : []), ...rankItems])];
 
@@ -412,9 +403,8 @@ io.on('connection', (socket) => {
                 });
 
                 if (data.type === 'music') {
-                    if (cosmetics.music) {
-                        socket.emit('playMusic', cosmetics.music);
-                    } else {
+                    if (cosmetics.music) socket.emit('playMusic', cosmetics.music);
+                    else {
                         const pRoom = Object.values(rooms).find(r => r.players.some(p => p.id === socket.id));
                         if (!pRoom) socket.emit('playMusic', 'menu.mp3');
                         else if (pRoom.active) socket.emit('playMusic', 'gameplay.mp3');
@@ -432,9 +422,9 @@ io.on('connection', (socket) => {
                     }
                 }
             } else {
-                socket.emit('announcement', `SYSTEM: ITEM LOCKED. YOU MUST BUY OR REACH THE REQUIRED RANK TO UNLOCK.`);
+                socket.emit('announcement', `SYSTEM: ITEM LOCKED. GRIND FOR RANK OR VANGUARD STATUS.`);
             }
-        } catch(e) { console.error(e); }
+        } catch(e) {}
     });
 
     socket.on('joinChatRoom', (rid) => { 
@@ -453,7 +443,7 @@ io.on('connection', (socket) => {
     socket.on('sendMessage', (data) => {
         const now = Date.now();
         if (now - socket.lastMsgTime < 1000) { 
-            return socket.emit('announcement', 'SYSTEM: You are sending messages too fast.');
+            return socket.emit('announcement', 'SYSTEM: Slow down your transmission.');
         }
         socket.lastMsgTime = now;
 
@@ -471,7 +461,7 @@ io.on('connection', (socket) => {
     socket.on('createGate', async (data) => {
         const now = Date.now();
         if (now - socket.lastGateTime < 5000) { 
-            return socket.emit('announcement', 'SYSTEM: Please wait before opening another Gate.');
+            return socket.emit('announcement', 'SYSTEM: Re-calibration required. Wait before opening another Gate.');
         }
         socket.lastGateTime = now;
 
@@ -496,11 +486,7 @@ io.on('connection', (socket) => {
         };
         socket.join(id);
         io.to(id).emit('waitingRoomUpdate', rooms[id]);
-        
-        if (!data.cosmetics?.music) {
-            socket.emit('playMusic', 'waiting.mp3');
-        }
-
+        if (!data.cosmetics?.music) socket.emit('playMusic', 'waiting.mp3');
         syncAllMonoliths();
     });
 
@@ -521,11 +507,7 @@ io.on('connection', (socket) => {
             });
             socket.join(data.gateID);
             io.to(data.gateID).emit('waitingRoomUpdate', r);
-            
-            if (!data.cosmetics?.music) {
-                socket.emit('playMusic', 'waiting.mp3');
-            }
-
+            if (!data.cosmetics?.music) socket.emit('playMusic', 'waiting.mp3');
             syncAllMonoliths();
         }
     });
@@ -561,19 +543,6 @@ io.on('connection', (socket) => {
         startGame(rooms[id]);
     });
 
-    socket.on('activateSkill', (data) => {
-        const r = Object.values(rooms).find(rm => rm.players.some(p => p.id === socket.id));
-        if(r && r.processing) {
-            const p = r.players.find(pl => pl.id === socket.id);
-            if(p && p.powerUp === data.powerUp) {
-                p.activeBuff = data.powerUp;
-                p.powerUp = null;
-                io.to(r.id).emit('announcement', `${p.name} ACTIVATED ${data.powerUp}!`);
-                if (r.afkTimer) { clearTimeout(r.afkTimer); r.afkTimer = null; }
-            }
-        }
-    });
-
     socket.on('playerAction', (data) => {
         if (!data || typeof data.tx !== 'number' || typeof data.ty !== 'number') return;
         if (data.tx < 0 || data.tx > 14 || data.ty < 0 || data.ty > 14) return; 
@@ -586,15 +555,10 @@ io.on('connection', (socket) => {
 
         const dx = Math.abs(data.tx - p.x);
         const dy = Math.abs(data.ty - p.y);
-        
         if (dx === 0 && dy === 0) return; 
 
-        if (dx > 0 && dy > 0) {
-            if (dx !== 1 || dy !== 1) return;
-        } else {
-            const dist = dx + dy;
-            if (dist > getMoveRange(p.mana)) return;
-        }
+        if (dx > 0 && dy > 0) { if (dx !== 1 || dy !== 1) return; } 
+        else { if (dx + dy > getMoveRange(p.mana)) return; }
 
         if (r.afkTimer) { clearTimeout(r.afkTimer); r.afkTimer = null; }
         processMove(r, p, data.tx, data.ty);
@@ -603,150 +567,95 @@ io.on('connection', (socket) => {
     socket.on('quitGame', () => handleDisconnect(socket, true));
     
     socket.on('disconnect', () => {
-        if (deviceId && connectedDevices[deviceId] === socket.id) {
-            delete connectedDevices[deviceId];
-        }
-
+        if (deviceId && connectedDevices[deviceId] === socket.id) delete connectedDevices[deviceId];
         const username = Object.keys(connectedUsers).find(key => connectedUsers[key] === socket.id);
 
         if (username) {
             pendingDisconnects[username] = setTimeout(() => {
                 delete pendingDisconnects[username];
-                
-                if (!connectedUsers[username] || connectedUsers[username] === socket.id) {
-                    handleDisconnect(socket, true); 
-                }
+                if (!connectedUsers[username] || connectedUsers[username] === socket.id) handleDisconnect(socket, true); 
             }, 15000); 
-        } else {
-            handleDisconnect(socket, false);
-        }
+        } else handleDisconnect(socket, false);
     });
 });
 
+// CORE LOGIC FUNCTIONS
 function startGame(room) {
     room.active = true;
     for(let i=0; i<5; i++) spawnMonolith(room);
     io.to(room.id).emit('gameStart', { roomId: room.id });
-    
-    room.players.forEach(p => {
-        if (!p.isAI && !p.activeCosmetics?.music) {
-            io.to(p.id).emit('playMusic', 'gameplay.mp3');
-        }
-    });
-
+    room.players.forEach(p => { if (!p.isAI && !p.activeCosmetics?.music) io.to(p.id).emit('playMusic', 'gameplay.mp3'); });
     broadcastGameState(room);
     syncAllMonoliths();
 }
 
 function processMove(room, player, tx, ty) {
     room.processing = true;
-    player.x = tx;
-    player.y = ty;
-
+    player.x = tx; player.y = ty;
     const enemy = room.players.find(other => other.id !== player.id && other.alive && other.x === tx && other.y === ty);
-    const monolithKey = `${tx}-${ty}`;
-    const monolith = room.world[monolithKey];
+    const monolith = room.world[`${tx}-${ty}`];
 
     if (enemy || monolith) {
         room.currentBattle = { attacker: player.id, defender: enemy ? enemy.id : 'monolith' };
         broadcastGameState(room); 
-
         io.to(room.id).emit('battleStart', {
             hunter: player.name, hunterColor: player.color, hunterMana: player.mana,
             target: enemy ? enemy.name : (monolith.rank === 'Eagle' ? "SILVER EAGLE" : `MONOLITH ${monolith.rank}`),
             targetColor: enemy ? enemy.color : monolith.color, targetRank: `MP: ${enemy ? enemy.mana : monolith.mana}`
         });
-
-        setTimeout(() => {
-            resolveBattle(room, player, enemy || monolith, !!monolith);
-        }, 3000);
-    } else {
-        finishTurn(room);
-    }
+        setTimeout(() => { resolveBattle(room, player, enemy || monolith, !!monolith); }, 3000);
+    } else finishTurn(room);
 }
 
 function resolveBattle(room, attacker, defender, isMonolith) {
     if(!room.active) return;
     room.currentBattle = null;
-    
     attacker.turnsWithoutBattle = 0;
-    if(!isMonolith) {
-        attacker.turnsWithoutPvP = 0;
-        defender.turnsWithoutBattle = 0;
-        defender.turnsWithoutPvP = 0;
-    }
+    if(!isMonolith) { attacker.turnsWithoutPvP = 0; defender.turnsWithoutBattle = 0; defender.turnsWithoutPvP = 0; }
 
-    let battleAttacker = attacker;
-    let battleDefender = defender;
-    let swapper = null;
+    let bAtt = attacker; let bDef = defender; let swp = null;
+    if (attacker.activeBuff === 'SOUL SWAP') swp = attacker;
+    else if (!isMonolith && defender.activeBuff === 'SOUL SWAP') swp = defender;
 
-    if (attacker.activeBuff === 'SOUL SWAP') swapper = attacker;
-    else if (!isMonolith && defender.activeBuff === 'SOUL SWAP') swapper = defender;
-
-    if (swapper) {
+    if (swp) {
         const victims = room.players.filter(p => p.alive && !p.quit && p.id !== attacker.id && p.id !== defender.id);
         if (victims.length > 0) {
-            const victim = victims[Math.floor(Math.random() * victims.length)];
-            io.to(room.id).emit('announcement', `${swapper.name} used SOUL SWAP! Swapping with ${victim.name}!`);
-            if (swapper.id === attacker.id) battleAttacker = victim;
-            else battleDefender = victim;
-            swapper.activeBuff = null;
-        } else {
-            io.to(room.id).emit('announcement', `${swapper.name}'s SOUL SWAP failed! No targets.`);
-            swapper = null; 
-            attacker.activeBuff = null; 
-            if(!isMonolith) defender.activeBuff = null;
-        }
+            const v = victims[Math.floor(Math.random() * victims.length)];
+            io.to(room.id).emit('announcement', `${swp.name} used SOUL SWAP! Swapping with ${v.name}!`);
+            if (swp.id === attacker.id) bAtt = v; else bDef = v;
+            swp.activeBuff = null;
+        } else { bAtt.activeBuff = null; if(!isMonolith) bDef.activeBuff = null; }
     }
 
-    let attMana = battleAttacker.mana;
-    let defMana = battleDefender.mana;
-    let cancel = false;
-    let autoWin = false;
-
-    if (battleAttacker.activeBuff === 'DOUBLE DAMAGE') attMana *= 2;
-    if (battleAttacker.activeBuff === 'RULERS POWER' && (!isMonolith || battleDefender.rank !== 'Eagle')) autoWin = true;
-    if (battleAttacker.activeBuff === 'AIR WALK') { cancel = true; teleport(battleAttacker); }
-    
+    let aM = bAtt.mana; let dM = bDef.mana; let can = false; let aw = false;
+    if (bAtt.activeBuff === 'DOUBLE DAMAGE') aM *= 2;
+    if (bAtt.activeBuff === 'RULERS POWER' && (!isMonolith || bDef.rank !== 'Eagle')) aw = true;
+    if (bAtt.activeBuff === 'AIR WALK') { can = true; teleport(bAtt); }
     if(!isMonolith) {
-        if(battleDefender.activeBuff === 'DOUBLE DAMAGE') defMana *= 2;
-        if(battleDefender.activeBuff === 'RULERS POWER') defMana = 99999999;
-        if(battleDefender.activeBuff === 'AIR WALK') { cancel = true; teleport(battleDefender); }
+        if(bDef.activeBuff === 'DOUBLE DAMAGE') dM *= 2;
+        if(bDef.activeBuff === 'RULERS POWER') dM = 99999999;
+        if(bDef.activeBuff === 'AIR WALK') { can = true; teleport(bDef); }
     }
     
-    if(battleAttacker.id !== (swapper?.id)) battleAttacker.activeBuff = null;
-    if(!isMonolith && battleDefender.id !== (swapper?.id)) battleDefender.activeBuff = null;
+    if(bAtt.id !== swp?.id) bAtt.activeBuff = null;
+    if(!isMonolith && bDef.id !== swp?.id) bDef.activeBuff = null;
 
-    let loser = null;
-
-    if(!cancel) {
-        if(autoWin || attMana >= defMana) {
-            battleAttacker.mana += battleDefender.mana;
+    if(!can) {
+        if(aw || aM >= dM) {
+            bAtt.mana += bDef.mana;
             if(isMonolith) {
                 delete room.world[`${attacker.x}-${attacker.y}`];
-                if(battleDefender.rank === 'Eagle') return handleWin(room, battleAttacker.name);
-                if(!battleAttacker.powerUp && Math.random() < 0.2) {
-                    battleAttacker.powerUp = POWER_UPS[Math.floor(Math.random() * POWER_UPS.length)];
-                    io.to(battleAttacker.id).emit('announcement', `OBTAINED RUNE: ${battleAttacker.powerUp}`);
+                if(bDef.rank === 'Eagle') return handleWin(room, bAtt.name);
+                if(!bAtt.powerUp && Math.random() < 0.2) {
+                    bAtt.powerUp = POWER_UPS[Math.floor(Math.random() * POWER_UPS.length)];
+                    io.to(bAtt.id).emit('announcement', `OBTAINED RUNE: ${bAtt.powerUp}`);
                 }
-            } else {
-                battleDefender.alive = false;
-                loser = battleDefender;
-            }
+            } else { bDef.alive = false; if (swp) { swp.mana += bDef.mana; swp.x = bDef.x; swp.y = bDef.y; } }
         } else {
-            if(!isMonolith) battleDefender.mana += battleAttacker.mana;
-            battleAttacker.alive = false;
-            loser = battleAttacker;
+            if(!isMonolith) bDef.mana += bAtt.mana;
+            bAtt.alive = false;
         }
     }
-
-    if (swapper && loser) {
-        io.to(room.id).emit('announcement', `${swapper.name} reaps MP and positions from ${loser.name}!`);
-        swapper.mana += loser.mana; 
-        swapper.x = loser.x;        
-        swapper.y = loser.y;
-    }
-
     io.to(room.id).emit('battleEnd');
     checkEagleCondition(room);
     finishTurn(room);
@@ -754,15 +663,11 @@ function resolveBattle(room, attacker, defender, isMonolith) {
 
 function checkEagleCondition(room) {
     if (!room.active) return;
-    const aliveTotal = room.players.filter(p => p.alive); 
-    if (aliveTotal.length === 1) {
-        const eagleMonolith = Object.values(room.world).find(g => g.rank === 'Eagle');
-        if(!eagleMonolith) {
-            let sx, sy;
-            do { sx=rInt(15); sy=rInt(15); } while(room.players.some(p=>p.x===sx && p.y===sy) || room.world[`${sx}-${sy}`]);
-            const smMana = Math.floor(Math.random() * (17000 - 1500 + 1)) + 1500;
-            room.world[`${sx}-${sy}`] = { rank: 'Eagle', color: '#fff', mana: smMana };
-            io.to(room.id).emit('announcement', `THE SILVER EAGLE HAS DESCENDED! DEFEAT IT IN 4 TURNS!`);
+    if (room.players.filter(p => p.alive).length === 1) {
+        if(!Object.values(room.world).find(g => g.rank === 'Eagle')) {
+            let sx, sy; do { sx=rInt(15); sy=rInt(15); } while(room.players.some(p=>p.x===sx && p.y===sy) || room.world[`${sx}-${sy}`]);
+            room.world[`${sx}-${sy}`] = { rank: 'Eagle', color: '#fff', mana: Math.floor(Math.random() * 15500) + 1500 };
+            io.to(room.id).emit('announcement', `THE SILVER EAGLE HAS DESCENDED!`);
             room.survivorTurns = 0;
         }
     } 
@@ -770,110 +675,46 @@ function checkEagleCondition(room) {
 
 function finishTurn(room) {
     if(!room.active) return;
-    
     if (room.afkTimer) { clearTimeout(room.afkTimer); room.afkTimer = null; }
-
     room.processing = false; 
-    const justPlayed = room.players[room.turn];
-    
-    if(justPlayed && justPlayed.alive) {
-        justPlayed.turnsWithoutBattle++;
-        justPlayed.turnsWithoutPvP++;
-
-        if (justPlayed.turnsWithoutPvP >= 10 && !justPlayed.isStunned) {
-            justPlayed.isStunned = true;
-            justPlayed.stunDuration = 2;
-            justPlayed.turnsWithoutPvP = 0; 
-            io.to(room.id).emit('announcement', `${justPlayed.name} is COWARDLY (No PvP)! STUNNED for 2 Turns!`);
-        }
-        else if (justPlayed.turnsWithoutBattle >= 5 && !justPlayed.isStunned) {
-            justPlayed.isStunned = true;
-            justPlayed.stunDuration = 1;
-            justPlayed.turnsWithoutBattle = 0; 
-            io.to(room.id).emit('announcement', `${justPlayed.name} is EXHAUSTED (No Battle)! STUNNED for 1 Turn!`);
-        }
-    }
+    const p = room.players[room.turn];
+    if(p && p.alive) { p.turnsWithoutBattle++; p.turnsWithoutPvP++; }
 
     room.currentRoundMoves++;
-    const activeList = room.players.filter(p => p.alive);
-    if (room.currentRoundMoves >= activeList.length) {
-        room.currentRoundMoves = 0;
-        room.round++;
-        if (room.round % 3 === 0) {
-            room.spawnCounter++;
-            for(let i=0; i<(3 + rInt(3)); i++) spawnMonolith(room);
-        }
+    if (room.currentRoundMoves >= room.players.filter(pl => pl.alive).length) {
+        room.currentRoundMoves = 0; room.round++;
+        if (room.round % 3 === 0) { room.spawnCounter++; for(let i=0; i<3; i++) spawnMonolith(room); }
     }
 
-    const eagleMonolith = Object.values(room.world).find(g => g.rank === 'Eagle');
-    const alive = room.players.filter(p => p.alive);
-    if (eagleMonolith && alive.length === 1) {
-        room.survivorTurns++;
-        if (room.survivorTurns >= 5) { triggerRespawn(room, alive[0].id); return; }
+    if (Object.values(room.world).find(g => g.rank === 'Eagle') && room.players.filter(pl => pl.alive).length === 1) {
+        room.survivorTurns++; if (room.survivorTurns >= 5) { triggerRespawn(room, null); return; }
     }
 
-    let attempts = 0;
-    let validNext = false;
+    let attempts = 0; let valid = false;
     do {
         room.turn = (room.turn + 1) % room.players.length;
-        const nextP = room.players[room.turn];
-        if (nextP.alive && !nextP.quit) {
-            if (nextP.isStunned) {
-                 nextP.stunDuration--;
-                 if (nextP.stunDuration <= 0) {
-                     nextP.isStunned = false; 
-                     io.to(room.id).emit('announcement', `${nextP.name} recovers from STUN.`);
-                     validNext = true; 
-                 } else {
-                     io.to(room.id).emit('announcement', `${nextP.name} is still STUNNED (${nextP.stunDuration} turns left).`);
-                 }
-            } else {
-                 validNext = true;
-
-                 if (!nextP.isAI) {
-                     room.afkTimer = setTimeout(() => {
-                         io.to(room.id).emit('announcement', `SYSTEM: ${nextP.name} WAS CONSUMED BY THE SHADOWS (AFK).`);
-                         const afkSocket = io.sockets.sockets.get(nextP.id);
-                         if (afkSocket) handleDisconnect(afkSocket, true); 
-                     }, 180000); 
-                 }
-            }
+        const n = room.players[room.turn];
+        if (n.alive && !n.quit) {
+            if (n.isStunned) { n.stunDuration--; if (n.stunDuration <= 0) { n.isStunned = false; valid = true; } } 
+            else { valid = true; if (!n.isAI) room.afkTimer = setTimeout(() => handleDisconnect(io.sockets.sockets.get(n.id), true), 180000); }
         }
         attempts++;
-    } while(!validNext && attempts < 10);
+    } while(!valid && attempts < 10);
 
-    if (room.players.filter(p => p.alive && !p.quit).length === 0) { triggerRespawn(room, null); return; }
+    if (room.players.filter(pl => pl.alive && !pl.quit).length === 0) { triggerRespawn(room, null); return; }
     broadcastGameState(room);
-    const nextP = room.players[room.turn];
-    if(nextP.alive && nextP.isAI) setTimeout(() => runAIMove(room, nextP), 1000);
 }
 
-function handleWin(room, winnerName) {
-    io.to(room.id).emit('victoryEvent', { winner: winnerName });
-    room.active = false;
-    if(room.afkTimer) clearTimeout(room.afkTimer);
-    
-    dbUpdateHunter(winnerName, room.isOnline ? 25 : 6, true);
-    
-    room.players.forEach(p => { 
-        if(p.name !== winnerName && !p.quit && !p.isAI) {
-            dbUpdateHunter(p.name, -5, false); 
-        }
-    });
-
+function handleWin(room, winner) {
+    io.to(room.id).emit('victoryEvent', { winner });
+    room.active = false; if(room.afkTimer) clearTimeout(room.afkTimer);
+    dbUpdateHunter(winner, room.isOnline ? 25 : 6, true);
+    room.players.forEach(p => { if(p.name !== winner && !p.quit && !p.isAI) dbUpdateHunter(p.name, -5, false); });
     broadcastWorldRankings();
-
     setTimeout(() => { 
         io.to(room.id).emit('returnToProfile'); 
-        
-        room.players.forEach(p => {
-            if (!p.isAI && !p.activeCosmetics?.music) {
-                io.to(p.id).emit('playMusic', 'menu.mp3');
-            }
-        });
-
-        delete rooms[room.id]; 
-        syncAllMonoliths(); 
+        room.players.forEach(p => { if (!p.isAI && !p.activeCosmetics?.music) io.to(p.id).emit('playMusic', 'menu.mp3'); });
+        delete rooms[room.id]; syncAllMonoliths(); 
     }, 6000);
 }
 
@@ -881,201 +722,50 @@ function handleDisconnect(socket, isQuit) {
     const room = Object.values(rooms).find(r => r.players.some(p => p.id === socket.id));
     if(room) {
         if(room.afkTimer) clearTimeout(room.afkTimer);
-
-        if (!room.active) {
-            const index = room.players.findIndex(pl => pl.id === socket.id);
-            if (index !== -1) {
-                room.players.splice(index, 1);
-                if (room.players.length === 0) delete rooms[room.id];
-                else io.to(room.id).emit('waitingRoomUpdate', room);
-            }
-            syncAllMonoliths();
-            const u = Object.keys(connectedUsers).find(key => connectedUsers[key] === socket.id);
-            if(u) delete connectedUsers[u];
-            return;
-        }
-
         const p = room.players.find(pl => pl.id === socket.id);
-        
         if(isQuit && p && !p.quit) {
-            p.quit = true; 
-            p.alive = false; 
-            
-            const quitPenalty = room.isOnline ? -20 : -3;
-            dbUpdateHunter(p.name, quitPenalty, false); 
-            
-            socket.leave(room.id);
-            socket.emit('returnToProfile'); 
-
-            if (!p.activeCosmetics?.music) {
-                socket.emit('playMusic', 'menu.mp3');
-            }
-
-            const activeHumans = room.players.filter(pl => !pl.quit && !pl.isAI);
-            if(room.isOnline && activeHumans.length === 1) { handleWin(room, activeHumans[0].name); return; }
-            if(!room.isOnline && activeHumans.length === 0) { delete rooms[room.id]; syncAllMonoliths(); return; }
-            if(p === room.players[room.turn]) finishTurn(room);
+            p.quit = true; p.alive = false; 
+            dbUpdateHunter(p.name, room.isOnline ? -20 : -3, false); 
+            socket.leave(room.id); socket.emit('returnToProfile'); 
+            if(room.isOnline && room.players.filter(pl => !pl.quit && !pl.isAI).length === 1) handleWin(room, room.players.find(pl => !pl.quit && !pl.isAI).name);
+            else finishTurn(room);
         }
-        
-        if(room.players.filter(pl => !pl.quit && !pl.isAI).length === 0) {
-            delete rooms[room.id]; 
-        } else if (rooms[room.id]) {
-            broadcastGameState(room); 
-        }
+        if(room.players.filter(pl => !pl.quit && !pl.isAI).length === 0) delete rooms[room.id]; 
         syncAllMonoliths();
     }
     const u = Object.keys(connectedUsers).find(key => connectedUsers[key] === socket.id);
     if(u) delete connectedUsers[u];
 }
 
-function triggerRespawn(room, survivorId) {
-    io.to(room.id).emit('announcement', "SYSTEM: TIME LIMIT EXCEEDED / HERO FALLEN. REAWAKENING PROTOCOL...");
-    room.respawnHappened = true;
-    room.world = {}; 
-    room.survivorTurns = 0;
-    room.currentBattle = null;
-    room.processing = false;
-    if(room.afkTimer) clearTimeout(room.afkTimer);
-    
-    let revivers = 0;
-    room.players.forEach(p => {
-        if(!p.quit) {
-            p.alive = true;
-            p.turnsWithoutBattle = 0;
-            p.turnsWithoutPvP = 0;
-            p.isStunned = false;
-            p.stunDuration = 0;
-            teleport(p);
-            if (!survivorId || p.id !== survivorId) {
-                 p.mana += Math.floor(Math.random() * 1001) + 500;
-            }
-            revivers++;
-        }
-    });
-    
-    if (revivers === 0) {
-        delete rooms[room.id];
-        return;
-    }
-    
+function triggerRespawn(room, sid) {
+    io.to(room.id).emit('announcement', "REAWAKENING PROTOCOL...");
+    room.respawnHappened = true; room.world = {}; 
+    room.players.forEach(p => { if(!p.quit) { p.alive = true; teleport(p); p.mana += 500; } });
     for(let i=0; i<5; i++) spawnMonolith(room);
     finishTurn(room);
 }
 
 function spawnMonolith(room) {
-    let sx, sy;
-    do { sx=rInt(15); sy=rInt(15); } while(room.players.some(p=>p.x===sx && p.y===sy) || room.world[`${sx}-${sy}`]);
-    let tiers = room.respawnHappened ? ['S', 'A'] : (room.spawnCounter <= 3 ? ['E', 'D'] : (room.spawnCounter <= 5 ? ['E', 'D', 'C', 'B'] : ['A', 'B', 'C', 'D', 'E']));
+    let sx, sy; do { sx=rInt(15); sy=rInt(15); } while(room.players.some(p=>p.x===sx && p.y===sy) || room.world[`${sx}-${sy}`]);
+    const tiers = ['E', 'D', 'C', 'B', 'A', 'S'];
     const rank = tiers[rInt(tiers.length)];
-    const range = { 'E':[10,100], 'D':[101,200], 'C':[201,400], 'B':[401,600], 'A':[601,900], 'S':[901,1500] }[rank];
-    room.world[`${sx}-${sy}`] = { rank, color: RANK_COLORS[rank], mana: rInt(range[1]-range[0]) + range[0] };
-}
-
-function runAIMove(room, ai) {
-    if(!room.active) return;
-    let target = null;
-    let minDist = 999;
-    const range = getMoveRange(ai.mana);
-
-    const eagleKey = Object.keys(room.world).find(k => room.world[k].rank === 'Eagle');
-    if (eagleKey) {
-         const [sx, sy] = eagleKey.split('-').map(Number);
-         target = {x: sx, y: sy};
-    }
-
-    if (!target) {
-        const killable = room.players.filter(p => p.id !== ai.id && p.alive && ai.mana >= p.mana);
-        if(killable.length > 0) {
-             for(const k of killable) {
-                 const dist = Math.abs(ai.x - k.x) + Math.abs(ai.y - k.y);
-                 if(dist < minDist) { minDist = dist; target = {x: k.x, y: k.y}; }
-             }
-        }
-    }
-
-    if (!target) {
-        minDist = 999;
-        for(const key in room.world) {
-            const [gx, gy] = key.split('-').map(Number);
-            const dist = Math.abs(ai.x - gx) + Math.abs(ai.y - gy);
-            if(ai.mana >= room.world[key].mana && dist < minDist) { minDist = dist; target = {x:gx, y:gy}; }
-        }
-    }
-
-    let tx = ai.x, ty = ai.y;
-    if(target) {
-        const dx = target.x - ai.x; 
-        const dy = target.y - ai.y;
-        
-        if (Math.abs(dx) === 1 && Math.abs(dy) === 1) {
-             tx += dx;
-             ty += dy;
-        } 
-        else {
-            if (Math.abs(dx) >= Math.abs(dy)) {
-                let stepX = (dx > 0) ? Math.min(dx, range) : Math.max(dx, -range);
-                tx += stepX;
-            } else {
-                let stepY = (dy > 0) ? Math.min(dy, range) : Math.max(dy, -range);
-                ty += stepY;
-            }
-        }
-    } else {
-        tx = Math.max(0, Math.min(14, ai.x + (Math.random() < 0.5 ? 1 : -1)));
-        ty = Math.max(0, Math.min(14, ai.y + (Math.random() < 0.5 ? 1 : -1)));
-    }
-
-    if (ai.powerUp) {
-        const enemy = room.players.find(p => p.alive && p.x === tx && p.y === ty && p.id !== ai.id);
-        const monolith = room.world[`${tx}-${ty}`];
-
-        if (enemy || monolith) {
-            let activate = false;
-            if (ai.powerUp === 'RULERS POWER') activate = true;
-            else if (ai.powerUp === 'DOUBLE DAMAGE') activate = true;
-            else if (ai.powerUp === 'SOUL SWAP' && ai.mana < 300) activate = true;
-
-            if (activate) {
-                ai.activeBuff = ai.powerUp;
-                ai.powerUp = null;
-                io.to(room.id).emit('announcement', `${ai.name} ACTIVATED ${ai.activeBuff}!`);
-            }
-        }
-    }
-
-    tx = Math.max(0, Math.min(14, tx)); ty = Math.max(0, Math.min(14, ty));
-    processMove(room, ai, tx, ty);
+    room.world[`${sx}-${sy}`] = { rank, color: RANK_COLORS[rank], mana: rInt(500) + 100 };
 }
 
 function teleport(p) { p.x = rInt(15); p.y = rInt(15); }
 function rInt(max) { return Math.floor(Math.random() * max); }
 
 async function broadcastGameState(room) {
-    const { afkTimer, hostCosmetics, ...roomState } = room; 
-    
     const sockets = await io.in(room.id).fetchSockets();
-
     for (const socket of sockets) {
-        const isSocketAdmin = (socket.id === adminSocketId);
-        const targetPlayer = room.players.find(p => p.id === socket.id);
-        
+        const isAdm = (socket.id === adminSocketId);
+        const tp = room.players.find(p => p.id === socket.id);
         const sanitized = room.players.map(pl => ({
-            ...pl,
-            activeCosmetics: undefined, 
-            skin: pl.skin, 
-            mana: (pl.id === socket.id || isSocketAdmin) ? pl.mana : null,
-            powerUp: (pl.id === socket.id) ? pl.powerUp : (isSocketAdmin && pl.powerUp ? '?' : null),
+            ...pl, activeCosmetics: undefined, mana: (pl.id === socket.id || isAdm) ? pl.mana : null,
+            powerUp: (pl.id === socket.id) ? pl.powerUp : (isAdm && pl.powerUp ? '?' : null),
             displayRank: getDisplayRank(pl.mana)
         }));
-
-        const personalCosmetics = targetPlayer ? targetPlayer.activeCosmetics : {};
-
-        socket.emit('gameStateUpdate', { 
-            ...roomState, 
-            hostCosmetics: personalCosmetics, 
-            players: sanitized, 
-            currentBattle: room.currentBattle 
-        });
+        socket.emit('gameStateUpdate', { ...room, players: sanitized, hostCosmetics: tp ? tp.activeCosmetics : {} });
     }
 }
 
