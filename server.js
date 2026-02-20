@@ -368,7 +368,8 @@ io.on('connection', (socket) => {
                 isAdmin: (user.username === ADMIN_NAME), music: null, 
                 inventory: getAllVaultItems(), 
                 ownedItems: totalOwned, 
-                activeCosmetics: user.active_cosmetics || {}
+                activeCosmetics: user.active_cosmetics || {},
+                reconnected: reconnected // Sends reconnect state to frontend to block menu wipe
             });
             
             socket.join('profile_page');
@@ -577,17 +578,36 @@ io.on('connection', (socket) => {
         processMove(r, p, data.tx, data.ty);
     });
 
-    socket.on('quitGame', () => handleDisconnect(socket, true));
+    socket.on('quitGame', () => {
+        // Find player and manually process quit penalty outside of disconnect timeout
+        const room = Object.values(rooms).find(r => r.players.some(p => p.id === socket.id));
+        if (room) {
+            const p = room.players.find(pl => pl.id === socket.id);
+            if (p && !p.quit) {
+                dbUpdateHunter(p.name, room.isOnline ? -20 : -3, false);
+            }
+        }
+        handleDisconnect(socket, true);
+    });
     
     socket.on('disconnect', () => {
         if (deviceId && connectedDevices[deviceId] === socket.id) delete connectedDevices[deviceId];
         const username = Object.keys(connectedUsers).find(key => connectedUsers[key] === socket.id);
 
         if (username) {
+            // FIX: Disconnect timeout changed to exactly 2 Minutes (120000ms)
             pendingDisconnects[username] = setTimeout(() => {
                 delete pendingDisconnects[username];
-                if (!connectedUsers[username] || connectedUsers[username] === socket.id) handleDisconnect(socket, true); 
-            }, 15000); 
+                if (!connectedUsers[username] || connectedUsers[username] === socket.id) {
+                    const room = Object.values(rooms).find(r => r.players.some(p => p.name === username));
+                    if(room) {
+                        io.to(room.id).emit('announcement', `SYSTEM: ${username} WAS CONSUMED BY THE SHADOWS (DISCONNECTED).`);
+                        const p = room.players.find(pl => pl.name === username);
+                        if (p && !p.quit) dbUpdateHunter(p.name, room.isOnline ? -20 : -3, false); // Applies correct quit penalty
+                    }
+                    handleDisconnect(socket, true); 
+                }
+            }, 120000); 
         } else handleDisconnect(socket, false);
     });
 });
@@ -599,14 +619,22 @@ function startGame(room) {
     io.to(room.id).emit('gameStart', { roomId: room.id });
     room.players.forEach(p => { if (!p.isAI && !p.activeCosmetics?.music) io.to(p.id).emit('playMusic', 'gameplay.mp3'); });
     
-    // PVP FIX: Ensure the first player gets an AFK timer so the game doesn't stall immediately
+    // FIX: Trigger 2-Minute AFK timer immediately for first player
     const p1 = room.players[0];
     if (!p1.isAI) {
         room.afkTimer = setTimeout(() => {
+            io.to(room.id).emit('announcement', `SYSTEM: ${p1.name} WAS CONSUMED BY THE SHADOWS (AFK).`);
             const afkSocket = io.sockets.sockets.get(p1.id);
-            if (afkSocket) handleDisconnect(afkSocket, true);
-            else { p1.quit = true; p1.alive = false; finishTurn(room); }
-        }, 180000);
+            if (afkSocket) {
+                dbUpdateHunter(p1.name, room.isOnline ? -20 : -3, false);
+                handleDisconnect(afkSocket, true);
+            } else { 
+                p1.quit = true; p1.alive = false; 
+                dbUpdateHunter(p1.name, room.isOnline ? -20 : -3, false);
+                if(room.isOnline && room.players.filter(pl => !pl.quit && !pl.isAI).length === 1) handleWin(room, room.players.find(pl => !pl.quit && !pl.isAI).name);
+                else finishTurn(room); 
+            }
+        }, 120000);
     }
     
     broadcastGameState(room);
@@ -641,7 +669,6 @@ function resolveBattle(room, attacker, defender, isMonolith) {
     if (attacker.activeBuff === 'SOUL SWAP') swp = attacker;
     else if (!isMonolith && defender.activeBuff === 'SOUL SWAP') swp = defender;
 
-    // FIX: Protected Soul Swap crash against Monoliths
     if (swp) {
         const victims = room.players.filter(p => p.alive && !p.quit && p.id !== attacker.id && p.id !== (isMonolith ? null : defender.id));
         if (victims.length > 0) {
@@ -736,14 +763,20 @@ function finishTurn(room) {
             } else { 
                 valid = true; 
                 if (!n.isAI) {
+                    // FIX: 2 Minute In-Game AFK Timer triggers here for active games
                     room.afkTimer = setTimeout(() => {
+                        io.to(room.id).emit('announcement', `SYSTEM: ${n.name} WAS CONSUMED BY THE SHADOWS (AFK).`);
                         const afkSocket = io.sockets.sockets.get(n.id);
-                        if (afkSocket) handleDisconnect(afkSocket, true);
-                        else {
+                        if (afkSocket) {
+                            dbUpdateHunter(n.name, room.isOnline ? -20 : -3, false);
+                            handleDisconnect(afkSocket, true);
+                        } else {
                             n.quit = true; n.alive = false;
-                            finishTurn(room);
+                            dbUpdateHunter(n.name, room.isOnline ? -20 : -3, false);
+                            if(room.isOnline && room.players.filter(pl => !pl.quit && !pl.isAI).length === 1) handleWin(room, room.players.find(pl => !pl.quit && !pl.isAI).name);
+                            else finishTurn(room);
                         }
-                    }, 180000); 
+                    }, 120000); 
                 }
             }
         }
@@ -753,16 +786,23 @@ function finishTurn(room) {
     if (room.players.filter(pl => pl.alive && !pl.quit).length === 0) { triggerRespawn(room, null); return; }
     broadcastGameState(room);
     
-    // RESTORED FIX: Starts the AI's turn if an AI is up next. This prevents the server from freezing!
     const nextP = room.players[room.turn];
     if(nextP.alive && nextP.isAI) setTimeout(() => runAIMove(room, nextP), 1000);
 }
 
+// FIX: Hardcoded Math (Win +25/6, Loss -5)
 function handleWin(room, winner) {
     io.to(room.id).emit('victoryEvent', { winner });
     room.active = false; if(room.afkTimer) clearTimeout(room.afkTimer);
+    
+    // WINNER MATH
     dbUpdateHunter(winner, room.isOnline ? 25 : 6, true);
-    room.players.forEach(p => { if(p.name !== winner && !p.quit && !p.isAI) dbUpdateHunter(p.name, -5, false); });
+    
+    // LOSER MATH (-5 for both PvP and AI)
+    room.players.forEach(p => { 
+        if(p.name !== winner && !p.quit && !p.isAI) dbUpdateHunter(p.name, -5, false); 
+    });
+    
     broadcastWorldRankings();
     setTimeout(() => { 
         io.to(room.id).emit('returnToProfile'); 
@@ -773,13 +813,21 @@ function handleWin(room, winner) {
 
 function handleDisconnect(socket, isQuit) {
     if (!socket) return; 
-    const room = Object.values(rooms).find(r => r.players.some(p => p.id === socket.id));
+    let room = null;
+    
+    // Locate room either by socket ID or if the user completely dropped off
+    for (const rid in rooms) {
+        if (rooms[rid].players.some(p => p.id === socket.id)) {
+            room = rooms[rid];
+            break;
+        }
+    }
+
     if(room) {
         if(room.afkTimer) clearTimeout(room.afkTimer);
         const p = room.players.find(pl => pl.id === socket.id);
         if(isQuit && p && !p.quit) {
             p.quit = true; p.alive = false; 
-            dbUpdateHunter(p.name, room.isOnline ? -20 : -3, false); 
             socket.leave(room.id); socket.emit('returnToProfile'); 
             if(room.isOnline && room.players.filter(pl => !pl.quit && !pl.isAI).length === 1) handleWin(room, room.players.find(pl => !pl.quit && !pl.isAI).name);
             else finishTurn(room);
@@ -799,17 +847,14 @@ function triggerRespawn(room, sid) {
     finishTurn(room);
 }
 
-// RESTORED FIX: The correct Monolith scaling generation logic
 function spawnMonolith(room) {
-    let sx, sy;
-    do { sx=rInt(15); sy=rInt(15); } while(room.players.some(p=>p.x===sx && p.y===sy) || room.world[`${sx}-${sy}`]);
+    let sx, sy; do { sx=rInt(15); sy=rInt(15); } while(room.players.some(p=>p.x===sx && p.y===sy) || room.world[`${sx}-${sy}`]);
     let tiers = room.respawnHappened ? ['S', 'A'] : (room.spawnCounter <= 3 ? ['E', 'D'] : (room.spawnCounter <= 5 ? ['E', 'D', 'C', 'B'] : ['A', 'B', 'C', 'D', 'E']));
     const rank = tiers[rInt(tiers.length)];
     const range = { 'E':[10,100], 'D':[101,200], 'C':[201,400], 'B':[401,600], 'A':[601,900], 'S':[901,1500] }[rank];
     room.world[`${sx}-${sy}`] = { rank, color: RANK_COLORS[rank], mana: rInt(range[1]-range[0]) + range[0] };
 }
 
-// RESTORED FIX: The completely missing AI movement logic that caused the server crashes
 function runAIMove(room, ai) {
     if(!room.active) return;
     let target = null;
@@ -845,19 +890,10 @@ function runAIMove(room, ai) {
     if(target) {
         const dx = target.x - ai.x; 
         const dy = target.y - ai.y;
-        
-        if (Math.abs(dx) === 1 && Math.abs(dy) === 1) {
-             tx += dx;
-             ty += dy;
-        } 
+        if (Math.abs(dx) === 1 && Math.abs(dy) === 1) { tx += dx; ty += dy; } 
         else {
-            if (Math.abs(dx) >= Math.abs(dy)) {
-                let stepX = (dx > 0) ? Math.min(dx, range) : Math.max(dx, -range);
-                tx += stepX;
-            } else {
-                let stepY = (dy > 0) ? Math.min(dy, range) : Math.max(dy, -range);
-                ty += stepY;
-            }
+            if (Math.abs(dx) >= Math.abs(dy)) { let stepX = (dx > 0) ? Math.min(dx, range) : Math.max(dx, -range); tx += stepX; } 
+            else { let stepY = (dy > 0) ? Math.min(dy, range) : Math.max(dy, -range); ty += stepY; }
         }
     } else {
         tx = Math.max(0, Math.min(14, ai.x + (Math.random() < 0.5 ? 1 : -1)));
@@ -867,7 +903,6 @@ function runAIMove(room, ai) {
     if (ai.powerUp) {
         const enemy = room.players.find(p => p.alive && p.x === tx && p.y === ty && p.id !== ai.id);
         const monolith = room.world[`${tx}-${ty}`];
-
         if (enemy || monolith) {
             let activate = false;
             if (ai.powerUp === 'RULERS POWER') activate = true;
@@ -875,8 +910,7 @@ function runAIMove(room, ai) {
             else if (ai.powerUp === 'SOUL SWAP' && ai.mana < 300) activate = true;
 
             if (activate) {
-                ai.activeBuff = ai.powerUp;
-                ai.powerUp = null;
+                ai.activeBuff = ai.powerUp; ai.powerUp = null;
                 io.to(room.id).emit('announcement', `${ai.name} ACTIVATED ${ai.activeBuff}!`);
             }
         }
