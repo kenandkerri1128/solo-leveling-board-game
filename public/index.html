@@ -429,6 +429,7 @@
     </div>
 
     <script>
+        // CHANGED: Socket connects directly to the new Render URL
         const RENDER_URL = "https://originmanaseige.onrender.com";
         const socket = io(RENDER_URL, { query: { deviceId: localStorage.getItem('hunter_device_id') || ('dev_' + Math.random().toString(36).substr(2, 9)) } });
 
@@ -886,7 +887,8 @@
             const bar = document.getElementById('vs-bar');
             bar.style.transition = 'none';
             bar.style.width = '0%';
-            setTimeout(() => { bar.style.transition = 'width 4.8s linear'; bar.style.width = '100%'; }, 50);
+            // CHANGED: Timed specifically for the new 3-second battle resolution window
+            setTimeout(() => { bar.style.transition = 'width 2.8s linear'; bar.style.width = '100%'; }, 50);
         });
 
         socket.on('battleEnd', () => { document.getElementById('vs-panel').style.display = 'none'; });
@@ -952,4 +954,3 @@
     </script>
 </body>
 </html>
-
