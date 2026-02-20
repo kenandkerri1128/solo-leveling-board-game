@@ -28,7 +28,8 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
 const uploadDirs = [
     path.join(__dirname, 'public', 'uploads', 'skins'),
     path.join(__dirname, 'public', 'uploads', 'bg'),
-    path.join(__dirname, 'public', 'uploads', 'music')
+    path.join(__dirname, 'public', 'uploads', 'music'),
+    path.join(__dirname, 'public', 'uploads', 'badges') // NEW BADGE DIRECTORY
 ];
 uploadDirs.forEach(dir => {
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
@@ -51,6 +52,17 @@ const PLAYER_COLORS = ['#00d2ff', '#ff3e3e', '#bcff00', '#ff00ff'];
 
 const RANK_COLORS = { 
     'E': '#00ff00', 'D': '#99ff00', 'C': '#ffff00', 'B': '#ff9900', 'A': '#ff00ff', 'S': '#ff0000', 'Eagle': '#ffffff' 
+};
+
+// NEW BADGE MAPPING
+const RANK_BADGES = {
+    'E': { title: 'Beginner Hunter', file: 'badge_E.png' },
+    'D': { title: 'Novice Hunter', file: 'badge_D.png' },
+    'C': { title: 'Elite Hunter', file: 'badge_C.png' },
+    'B': { title: 'Veteran Hunter', file: 'badge_B.png' },
+    'A': { title: 'Super Hunter', file: 'badge_A.png' },
+    'S': { title: 'Master Hunter', file: 'badge_S.png' },
+    'S+': { title: 'Lord of Hunters', file: 'badge_Splus.png' }
 };
 
 const POWER_UPS = ['DOUBLE DAMAGE', 'AIR WALK', 'SOUL SWAP', 'RULERS POWER'];
@@ -838,7 +850,6 @@ function handleDisconnect(socket, isQuit) {
     if(u) delete connectedUsers[u];
 }
 
-// FIX: Players spawn in original corners to guarantee maximum spacing.
 function triggerRespawn(room, sid) {
     io.to(room.id).emit('announcement', "REAWAKENING PROTOCOL...");
     room.respawnHappened = true; 
@@ -854,11 +865,9 @@ function triggerRespawn(room, sid) {
         if(!p.quit) { 
             p.alive = true; 
             
-            // Spawn players perfectly spaced out in their original corners
             p.x = CORNERS[p.slot].x;
             p.y = CORNERS[p.slot].y;
             
-            // Remove any monolith that might have spawned on their corner to prevent instant death/glitches
             delete room.world[`${p.x}-${p.y}`];
 
             p.mana += 500; 
