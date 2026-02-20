@@ -430,7 +430,16 @@
 
     <script>
         const RENDER_URL = "https://originmanaseige.onrender.com";
-        const socket = io(RENDER_URL, { query: { deviceId: localStorage.getItem('hunter_device_id') || ('dev_' + Math.random().toString(36).substr(2, 9)) } });
+        
+        // --- THIS IS THE FIX FOR THE "ONE TAB PER BROWSER" ISSUE ---
+        // It now correctly generates AND SAVES the device ID so multiple tabs share the same ID and trigger the server block.
+        let localDeviceID = localStorage.getItem('hunter_device_id');
+        if (!localDeviceID) {
+            localDeviceID = 'dev_' + Math.random().toString(36).substr(2, 9);
+            localStorage.setItem('hunter_device_id', localDeviceID);
+        }
+        
+        const socket = io(RENDER_URL, { query: { deviceId: localDeviceID } });
 
         let myHunter = null, myRoomID = 'profile_page', currentBGM = "", currentGateID = null, currentInvTab = 'skin';
         let currentHunterPowerUp = null, currentGameState = null, currentWorldRankings = [];
