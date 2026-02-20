@@ -369,7 +369,7 @@ io.on('connection', (socket) => {
                 inventory: getAllVaultItems(), 
                 ownedItems: totalOwned, 
                 activeCosmetics: user.active_cosmetics || {},
-                reconnected: reconnected // Sends reconnect state to frontend to block menu wipe
+                reconnected: reconnected 
             });
             
             socket.join('profile_page');
@@ -579,7 +579,6 @@ io.on('connection', (socket) => {
     });
 
     socket.on('quitGame', () => {
-        // Find player and manually process quit penalty outside of disconnect timeout
         const room = Object.values(rooms).find(r => r.players.some(p => p.id === socket.id));
         if (room) {
             const p = room.players.find(pl => pl.id === socket.id);
@@ -595,7 +594,6 @@ io.on('connection', (socket) => {
         const username = Object.keys(connectedUsers).find(key => connectedUsers[key] === socket.id);
 
         if (username) {
-            // FIX: Disconnect timeout changed to exactly 2 Minutes (120000ms)
             pendingDisconnects[username] = setTimeout(() => {
                 delete pendingDisconnects[username];
                 if (!connectedUsers[username] || connectedUsers[username] === socket.id) {
@@ -603,7 +601,7 @@ io.on('connection', (socket) => {
                     if(room) {
                         io.to(room.id).emit('announcement', `SYSTEM: ${username} WAS CONSUMED BY THE SHADOWS (DISCONNECTED).`);
                         const p = room.players.find(pl => pl.name === username);
-                        if (p && !p.quit) dbUpdateHunter(p.name, room.isOnline ? -20 : -3, false); // Applies correct quit penalty
+                        if (p && !p.quit) dbUpdateHunter(p.name, room.isOnline ? -20 : -3, false); 
                     }
                     handleDisconnect(socket, true); 
                 }
@@ -619,7 +617,6 @@ function startGame(room) {
     io.to(room.id).emit('gameStart', { roomId: room.id });
     room.players.forEach(p => { if (!p.isAI && !p.activeCosmetics?.music) io.to(p.id).emit('playMusic', 'gameplay.mp3'); });
     
-    // FIX: Trigger 2-Minute AFK timer immediately for first player
     const p1 = room.players[0];
     if (!p1.isAI) {
         room.afkTimer = setTimeout(() => {
@@ -699,10 +696,11 @@ function resolveBattle(room, attacker, defender, isMonolith) {
                 delete room.world[`${attacker.x}-${attacker.y}`];
                 if(bDef.rank === 'Eagle') return handleWin(room, bAtt.name);
                 
-                // NEW: Calculate the top 2 weakest living players. If the attacker is one of them, give +5% drop chance.
+                // FIX: Calculate the 2 weakest players overall (alive or dead). 
+                // If the attacker is one of them, give +5% drop chance.
                 let pChance = 0.20;
-                const aliveSorted = room.players.filter(p => p.alive && !p.quit).sort((a, b) => a.mana - b.mana);
-                if (aliveSorted.length > 0 && (bAtt.id === aliveSorted[0].id || (aliveSorted.length > 1 && bAtt.id === aliveSorted[1].id))) {
+                const allSorted = room.players.slice().sort((a, b) => a.mana - b.mana);
+                if (allSorted.length > 0 && (bAtt.id === allSorted[0].id || (allSorted.length > 1 && bAtt.id === allSorted[1].id))) {
                     pChance = 0.25;
                 }
 
@@ -771,7 +769,6 @@ function finishTurn(room) {
             } else { 
                 valid = true; 
                 if (!n.isAI) {
-                    // FIX: 2 Minute In-Game AFK Timer triggers here for active games
                     room.afkTimer = setTimeout(() => {
                         io.to(room.id).emit('announcement', `SYSTEM: ${n.name} WAS CONSUMED BY THE SHADOWS (AFK).`);
                         const afkSocket = io.sockets.sockets.get(n.id);
@@ -798,15 +795,12 @@ function finishTurn(room) {
     if(nextP.alive && nextP.isAI) setTimeout(() => runAIMove(room, nextP), 1000);
 }
 
-// FIX: Hardcoded Math (Win +25/6, Loss -5)
 function handleWin(room, winner) {
     io.to(room.id).emit('victoryEvent', { winner });
     room.active = false; if(room.afkTimer) clearTimeout(room.afkTimer);
     
-    // WINNER MATH
     dbUpdateHunter(winner, room.isOnline ? 25 : 6, true);
     
-    // LOSER MATH (-5 for both PvP and AI)
     room.players.forEach(p => { 
         if(p.name !== winner && !p.quit && !p.isAI) dbUpdateHunter(p.name, -5, false); 
     });
@@ -823,7 +817,6 @@ function handleDisconnect(socket, isQuit) {
     if (!socket) return; 
     let room = null;
     
-    // Locate room either by socket ID or if the user completely dropped off
     for (const rid in rooms) {
         if (rooms[rid].players.some(p => p.id === socket.id)) {
             room = rooms[rid];
