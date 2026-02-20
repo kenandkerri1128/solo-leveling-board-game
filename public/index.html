@@ -531,7 +531,6 @@
                 document.getElementById('admin-room-panel').style.display = 'flex';
             }
 
-            // FIX: If the player reconnected to a match, we DO NOT force them back to the menu!
             if (!d.reconnected) {
                 const currentScreen = document.querySelector('.screen.active').id;
                 if(currentScreen !== 'screen-game') {
@@ -757,12 +756,17 @@
 
         function getRankLetter(hup) {
             if (hup >= 1000) return { letter: "S+", color: "var(--rank-s)" }; 
-            if (hup >= 901) return { letter: "S", color: "var(--rank-s)" };
-            if (hup >= 701) return { letter: "A", color: "var(--rank-a)" };
-            if (hup >= 501) return { letter: "B", color: "var(--rank-b)" };
-            if (hup >= 301) return { letter: "C", color: "var(--rank-c)" };
-            if (hup >= 101) return { letter: "D", color: "var(--rank-d)" };
-            return { letter: "E", color: "var(--rank-e)" };
+            if (hup >= 901) return { letter: "S-", color: "var(--rank-s)" };
+            if (hup >= 801) return { letter: "A+", color: "var(--rank-a)" };
+            if (hup >= 701) return { letter: "A-", color: "var(--rank-a)" };
+            if (hup >= 601) return { letter: "B+", color: "var(--rank-b)" };
+            if (hup >= 501) return { letter: "B-", color: "var(--rank-b)" };
+            if (hup >= 401) return { letter: "C+", color: "var(--rank-c)" };
+            if (hup >= 301) return { letter: "C-", color: "var(--rank-c)" };
+            if (hup >= 201) return { letter: "D+", color: "var(--rank-d)" };
+            if (hup >= 101) return { letter: "D-", color: "var(--rank-d)" };
+            if (hup >= 51) return { letter: "E+", color: "var(--rank-e)" };
+            return { letter: "E-", color: "var(--rank-e)" };
         }
 
         function renderRankings() {
