@@ -20,7 +20,7 @@ process.on('unhandledRejection', (reason) => console.error('PROMISE ERROR:', rea
 
 // --- DATABASE CONFIGURATION ---
 const SUPABASE_URL = 'https://wfsuxqgvshrhqfvnkzdx.supabase.co'; 
-// SECURITY SHIELD: Master Key Integrated
+// SECURITY SHIELD: Master Service Role Key
 const SUPABASE_SERVICE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Indmc3V4cWd2c2hyaHFmdm5remR4Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MDgyNTAxNCwiZXhwIjoyMDg2NDAxMDE0fQ.S4sg9RXAY5XBowA2Huim4OCLwUKpnRDeYUrzinzxmAw'; 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
 
@@ -543,6 +543,19 @@ io.on('connection', (socket) => {
         startGame(rooms[id]);
     });
 
+    socket.on('activateSkill', (data) => {
+        const r = Object.values(rooms).find(rm => rm.players.some(p => p.id === socket.id));
+        if(r && r.processing) {
+            const p = r.players.find(pl => pl.id === socket.id);
+            if(p && p.powerUp === data.powerUp) {
+                p.activeBuff = data.powerUp;
+                p.powerUp = null;
+                io.to(r.id).emit('announcement', `${p.name} ACTIVATED ${data.powerUp}!`);
+                if (r.afkTimer) { clearTimeout(r.afkTimer); r.afkTimer = null; }
+            }
+        }
+    });
+
     socket.on('playerAction', (data) => {
         if (!data || typeof data.tx !== 'number' || typeof data.ty !== 'number') return;
         if (data.tx < 0 || data.tx > 14 || data.ty < 0 || data.ty > 14) return; 
@@ -617,8 +630,9 @@ function resolveBattle(room, attacker, defender, isMonolith) {
     if (attacker.activeBuff === 'SOUL SWAP') swp = attacker;
     else if (!isMonolith && defender.activeBuff === 'SOUL SWAP') swp = defender;
 
+    // BUG 2 FIX: Protected Soul Swap crash against Monoliths
     if (swp) {
-        const victims = room.players.filter(p => p.alive && !p.quit && p.id !== attacker.id && p.id !== defender.id);
+        const victims = room.players.filter(p => p.alive && !p.quit && p.id !== attacker.id && p.id !== (isMonolith ? null : defender.id));
         if (victims.length > 0) {
             const v = victims[Math.floor(Math.random() * victims.length)];
             io.to(room.id).emit('announcement', `${swp.name} used SOUL SWAP! Swapping with ${v.name}!`);
@@ -677,8 +691,19 @@ function finishTurn(room) {
     if(!room.active) return;
     if (room.afkTimer) { clearTimeout(room.afkTimer); room.afkTimer = null; }
     room.processing = false; 
+    
+    // RESTORED: Exhaustion and Cowardice Mechanics
     const p = room.players[room.turn];
-    if(p && p.alive) { p.turnsWithoutBattle++; p.turnsWithoutPvP++; }
+    if(p && p.alive) { 
+        p.turnsWithoutBattle++; p.turnsWithoutPvP++; 
+        if (p.turnsWithoutPvP >= 10 && !p.isStunned) {
+            p.isStunned = true; p.stunDuration = 2; p.turnsWithoutPvP = 0; 
+            io.to(room.id).emit('announcement', `${p.name} is COWARDLY! STUNNED for 2 Turns!`);
+        } else if (p.turnsWithoutBattle >= 5 && !p.isStunned) {
+            p.isStunned = true; p.stunDuration = 1; p.turnsWithoutBattle = 0; 
+            io.to(room.id).emit('announcement', `${p.name} is EXHAUSTED! STUNNED for 1 Turn!`);
+        }
+    }
 
     room.currentRoundMoves++;
     if (room.currentRoundMoves >= room.players.filter(pl => pl.alive).length) {
@@ -695,14 +720,32 @@ function finishTurn(room) {
         room.turn = (room.turn + 1) % room.players.length;
         const n = room.players[room.turn];
         if (n.alive && !n.quit) {
-            if (n.isStunned) { n.stunDuration--; if (n.stunDuration <= 0) { n.isStunned = false; valid = true; } } 
-            else { valid = true; if (!n.isAI) room.afkTimer = setTimeout(() => handleDisconnect(io.sockets.sockets.get(n.id), true), 180000); }
+            if (n.isStunned) { 
+                n.stunDuration--; 
+                if (n.stunDuration <= 0) { n.isStunned = false; valid = true; } 
+            } else { 
+                valid = true; 
+                if (!n.isAI) {
+                    room.afkTimer = setTimeout(() => {
+                        const afkSocket = io.sockets.sockets.get(n.id);
+                        if (afkSocket) handleDisconnect(afkSocket, true);
+                        else {
+                            n.quit = true; n.alive = false;
+                            finishTurn(room);
+                        }
+                    }, 180000); 
+                }
+            }
         }
         attempts++;
     } while(!valid && attempts < 10);
 
     if (room.players.filter(pl => pl.alive && !pl.quit).length === 0) { triggerRespawn(room, null); return; }
     broadcastGameState(room);
+    
+    // RESTORED BUG 1: Start the AI's turn if an AI is active
+    const nextP = room.players[room.turn];
+    if(nextP.alive && nextP.isAI) setTimeout(() => runAIMove(room, nextP), 1000);
 }
 
 function handleWin(room, winner) {
@@ -719,6 +762,7 @@ function handleWin(room, winner) {
 }
 
 function handleDisconnect(socket, isQuit) {
+    if (!socket) return; // SECURITY FIX: Protect against undefined socket drops
     const room = Object.values(rooms).find(r => r.players.some(p => p.id === socket.id));
     if(room) {
         if(room.afkTimer) clearTimeout(room.afkTimer);
@@ -755,17 +799,20 @@ function spawnMonolith(room) {
 function teleport(p) { p.x = rInt(15); p.y = rInt(15); }
 function rInt(max) { return Math.floor(Math.random() * max); }
 
+// BUG 1 FIX: Stripped afkTimer entirely before emitting to prevent client freezing!
 async function broadcastGameState(room) {
+    const { afkTimer, hostCosmetics, ...safeRoom } = room; 
     const sockets = await io.in(room.id).fetchSockets();
+    
     for (const socket of sockets) {
         const isAdm = (socket.id === adminSocketId);
-        const tp = room.players.find(p => p.id === socket.id);
-        const sanitized = room.players.map(pl => ({
+        const tp = safeRoom.players.find(p => p.id === socket.id);
+        const sanitized = safeRoom.players.map(pl => ({
             ...pl, activeCosmetics: undefined, mana: (pl.id === socket.id || isAdm) ? pl.mana : null,
             powerUp: (pl.id === socket.id) ? pl.powerUp : (isAdm && pl.powerUp ? '?' : null),
             displayRank: getDisplayRank(pl.mana)
         }));
-        socket.emit('gameStateUpdate', { ...room, players: sanitized, hostCosmetics: tp ? tp.activeCosmetics : {} });
+        socket.emit('gameStateUpdate', { ...safeRoom, players: sanitized, hostCosmetics: tp ? tp.activeCosmetics : {} });
     }
 }
 
