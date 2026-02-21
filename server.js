@@ -742,7 +742,7 @@ io.on('connection', (socket) => {
                     // Regular Quit (In-Game or Unranked)
                     let loss = 0;
                     if(room.isOnline) loss = room.isRanked ? -20 : 0;
-                    else loss = -3;
+                    else loss = -5;
                     
                     if(loss !== 0) dbUpdateHunter(p.name, loss, false);
                 }
@@ -768,7 +768,7 @@ io.on('connection', (socket) => {
                         if (p && !p.quit) {
                             let loss = 0;
                             if(room.isOnline) loss = room.isRanked ? -20 : 0;
-                            else loss = -3;
+                            else loss = -5;
                             if(loss !== 0) dbUpdateHunter(p.name, loss, false);
                         }
                     }
@@ -1155,3 +1155,4 @@ async function broadcastGameState(room) {
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => console.log(`SYSTEM: ONLINE ON PORT ${PORT}`));
+
