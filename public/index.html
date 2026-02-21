@@ -235,6 +235,25 @@
         ::-webkit-scrollbar-track { background: #111; }
         ::-webkit-scrollbar-thumb { background: var(--sys-blue); border-radius: 4px; }
 
+        /* --- GAME EFFECTS CSS --- */
+        .hidden-effect { display: none; }
+        #clash-effect-container {
+            position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            z-index: 9999; pointer-events: none;
+        }
+        #clash-animation { width: 300px; height: auto; filter: drop-shadow(0 0 10px white); }
+        .clash-active {
+            display: block !important;
+            animation: fadeOutEffect 1s forwards;
+        }
+        @keyframes fadeOutEffect {
+            0% { opacity: 0; transform: translate(-50%, -50%) scale(0.5); }
+            20% { opacity: 1; transform: translate(-50%, -50%) scale(1.2); }
+            40% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+            80% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+            100% { opacity: 0; transform: translate(-50%, -50%) scale(1); }
+        }
+
         @media (max-width: 1024px) {
             h1 { font-size: 2.5rem !important; }
             h2 { font-size: 2rem !important; }
@@ -510,6 +529,10 @@
         </div>
     </div>
 
+    <div id="clash-effect-container" class="hidden-effect">
+        <img src="assets/sword-clash.gif" id="clash-animation" alt="Sword Clash" onerror="this.src='https://via.placeholder.com/300x300.png?text=Sword+Clash+GIF'" />
+    </div>
+
     <script>
         const RENDER_URL = "https://originmanaseige.onrender.com";
         
@@ -524,6 +547,40 @@
         let myHunter = null, myRoomID = 'profile_page', currentBGM = "", currentGateID = null, currentInvTab = 'skin';
         let currentHunterPowerUp = null, currentGameState = null, currentWorldRankings = [];
         const BGM = document.getElementById('bgm');
+
+        class GameEffectsManager {
+            constructor() {
+                this.clashSound = new Audio('assets/sounds/sword-clash.mp3');
+                this.silverEagleSound = new Audio('assets/sounds/whirling-loop.mp3');
+                this.silverEagleSound.loop = true;
+                this.clashContainer = document.getElementById('clash-effect-container');
+                this.eagleActive = false;
+            }
+            triggerCombatEffect() {
+                this.clashSound.currentTime = 0;
+                this.clashSound.play().catch(e => console.log("Audio interaction needed:", e));
+                if (this.clashContainer) {
+                    this.clashContainer.classList.remove('clash-active');
+                    void this.clashContainer.offsetWidth;
+                    this.clashContainer.classList.add('clash-active');
+                    setTimeout(() => { this.clashContainer.classList.remove('clash-active'); }, 1000);
+                }
+            }
+            startSilverEaglePresence() {
+                if(!this.eagleActive) {
+                    this.silverEagleSound.play().catch(e => console.log("Audio interaction needed:", e));
+                    this.eagleActive = true;
+                }
+            }
+            stopSilverEaglePresence() {
+                if(this.eagleActive) {
+                    this.silverEagleSound.pause();
+                    this.silverEagleSound.currentTime = 0;
+                    this.eagleActive = false;
+                }
+            }
+        }
+        const fxManager = new GameEffectsManager();
 
         const POWER_ICONS = { 'DOUBLE DAMAGE': '⚔️', 'AIR WALK': '👣', 'SOUL SWAP': '🌀', 'RULERS POWER': '👑', '?': '❓' };
 
@@ -581,6 +638,7 @@
 
         function doLogout() {
             currentGateID = null; 
+            fxManager.stopSilverEaglePresence();
             sessionStorage.removeItem('hunter_creds');
             sessionStorage.removeItem('last_screen');
             location.reload();
@@ -1091,10 +1149,11 @@
             socket.emit('quitGame'); 
             currentGateID = null; 
             document.getElementById('victory-screen').style.display = 'none'; 
+            fxManager.stopSilverEaglePresence();
             showScreen('screen-menu'); 
         }
 
-        socket.on('returnToProfile', () => { currentGateID = null; document.getElementById('victory-screen').style.display = 'none'; showScreen('screen-menu'); document.getElementById('screen-game').style.backgroundImage = 'none';});
+        socket.on('returnToProfile', () => { currentGateID = null; document.getElementById('victory-screen').style.display = 'none'; fxManager.stopSilverEaglePresence(); showScreen('screen-menu'); document.getElementById('screen-game').style.backgroundImage = 'none';});
 
         socket.on('gameStateUpdate', (state) => {
             if (!state.active) return;
@@ -1138,6 +1197,7 @@
 
             const board = document.getElementById('game-board'); board.innerHTML = '';
             const range = (isMyTurn && me) ? getMoveRange(me.mana) : 0;
+            let silverEagleOnBoard = false;
 
             for(let y=0; y<15; y++) {
                 for(let x=0; x<15; x++) {
@@ -1146,6 +1206,7 @@
                     
                     if (state.world[key]) {
                         if(state.world[key].rank === 'Eagle') {
+                            silverEagleOnBoard = true;
                             if (state.hostCosmetics?.eagle) {
                                 cell.innerHTML = `<div class="custom-skin silver-eagle-glow" style="background-image: url('/uploads/skins/${state.hostCosmetics.eagle}'); width: 90%; height: 90%;"></div>`;
                             } else {
@@ -1179,9 +1240,16 @@
                     board.appendChild(cell);
                 }
             }
+
+            if (silverEagleOnBoard) {
+                fxManager.startSilverEaglePresence();
+            } else {
+                fxManager.stopSilverEaglePresence();
+            }
         });
 
         socket.on('battleStart', (data) => {
+            fxManager.triggerCombatEffect();
             const panel = document.getElementById('vs-panel');
             panel.style.display = 'flex';
             document.getElementById('vs-content').innerHTML = `
@@ -1218,6 +1286,7 @@
         });
 
         socket.on('victoryEvent', (data) => {
+            fxManager.stopSilverEaglePresence();
             const scr = document.getElementById('victory-screen');
             scr.style.display = 'flex';
             document.getElementById('winner-name').innerText = data.winner;
