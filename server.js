@@ -68,8 +68,8 @@ const RANK_BADGES = {
 const POWER_UPS = ['DOUBLE DAMAGE', 'AIR WALK', 'SOUL SWAP', 'RULERS POWER'];
 const CORNERS = [{x:0,y:0}, {x:14,y:0}, {x:0,y:14}, {x:14,y:14}];
 
-// --- RANK UNLOCK LOGIC ---
-function getRankUnlockedItems(mana) {
+// --- RANK UNLOCK LOGIC (UPDATED WITH WORLD RANK CHECKS) ---
+function getRankUnlockedItems(mana, wr = 999) {
     let unlocked = [];
     if (mana >= 101) unlocked.push('skin:char_knight.png'); 
     if (mana >= 301) unlocked.push('skin:char_calvary.png'); 
@@ -77,6 +77,8 @@ function getRankUnlockedItems(mana) {
     if (mana >= 701) unlocked.push('skin:char_sniper.png', 'eagle:eagle_premium.png'); 
     if (mana >= 901) unlocked.push('skin:char_speargirl.png', 'bg:hunterseige_bg.png'); 
     if (mana >= 1000) unlocked.push('skin:char_main char.png', 'music:Pixel Parlor Lounge.mp3'); 
+    if (wr <= 3) unlocked.push('skin:char_queen.png');
+    if (wr === 1) unlocked.push('skin:char_king.png');
     return unlocked;
 }
 
@@ -139,7 +141,7 @@ function getMoveRange(mana) {
 async function getWorldRankDisplay(username) {
     try {
         const { data } = await supabase.from('Hunters').select('username, hunterpoints, wins, losses');
-        if (!data) return { label: '#??', color: '#888' };
+        if (!data) return { label: '#??', color: '#888', rankNum: '--' };
         
         data.sort((a, b) => {
             if (b.hunterpoints !== a.hunterpoints) return b.hunterpoints - a.hunterpoints;
@@ -151,7 +153,7 @@ async function getWorldRankDisplay(username) {
         });
 
         const index = data.findIndex(u => u.username === username);
-        if (index === -1) return { label: '#??', color: '#888' };
+        if (index === -1) return { label: '#??', color: '#888', rankNum: '--' };
         
         const rank = index + 1;
         let color = '#fff'; 
@@ -237,7 +239,8 @@ function getAllVaultItems() {
     const PRIORITY_ITEMS = [
         'skin:char_knight.png', 'skin:char_calvary.png', 'skin:char_assasin.png',
         'skin:char_sniper.png', 'eagle:eagle_premium.png', 'skin:char_speargirl.png',
-        'bg:hunterseige_bg.png', 'skin:char_main char.png', 'music:Pixel Parlor Lounge.mp3'
+        'bg:hunterseige_bg.png', 'skin:char_main char.png', 'music:Pixel Parlor Lounge.mp3',
+        'skin:char_queen.png', 'skin:char_king.png'
     ];
 
     items.sort((a, b) => {
@@ -355,7 +358,9 @@ io.on('connection', (socket) => {
         try {
             const { data: user } = await supabase.from('Hunters').select('hunterpoints, inventory, active_cosmetics').eq('username', username).single();
             if (user) {
-                const rankItems = getRankUnlockedItems(user.hunterpoints);
+                const wrInfo = await getWorldRankDisplay(username);
+                const wrNum = typeof wrInfo.rankNum === 'number' ? wrInfo.rankNum : 999;
+                const rankItems = getRankUnlockedItems(user.hunterpoints, wrNum);
                 const totalOwned = [...new Set([...(user.inventory || []), ...rankItems])];
                 socket.emit('inventoryUpdate', { 
                     inventory: getAllVaultItems(), 
@@ -417,7 +422,9 @@ io.on('connection', (socket) => {
                         const targetSocketId = connectedUsers[data.target];
                         if (targetSocketId) {
                             const { data: freshUser } = await supabase.from('Hunters').select('hunterpoints, inventory, active_cosmetics').eq('username', data.target).single();
-                            const rankItems = getRankUnlockedItems(freshUser.hunterpoints);
+                            const wrInfo = await getWorldRankDisplay(data.target);
+                            const wrNum = typeof wrInfo.rankNum === 'number' ? wrInfo.rankNum : 999;
+                            const rankItems = getRankUnlockedItems(freshUser.hunterpoints, wrNum);
                             const totalOwned = [...new Set([...(freshUser.inventory || []), ...rankItems])];
                             
                             io.to(targetSocketId).emit('inventoryUpdate', { 
@@ -482,7 +489,8 @@ io.on('connection', (socket) => {
             const startingMusic = user.active_cosmetics?.music || (reconnected ? null : 'menu.mp3');
             if (startingMusic) socket.emit('playMusic', startingMusic);
 
-            const rankItems = getRankUnlockedItems(user.hunterpoints);
+            const wrNum = typeof wrInfo.rankNum === 'number' ? wrInfo.rankNum : 999;
+            const rankItems = getRankUnlockedItems(user.hunterpoints, wrNum);
             const totalOwned = [...new Set([...(user.inventory || []), ...rankItems])];
 
             socket.emit('authSuccess', { 
@@ -511,7 +519,10 @@ io.on('connection', (socket) => {
             const invString = `${data.type}:${data.item}`;
             
             const isAdmin = (data.username === ADMIN_NAME);
-            const rankItems = user ? getRankUnlockedItems(user.hunterpoints) : [];
+            
+            const wrInfo = await getWorldRankDisplay(data.username);
+            const wrNum = typeof wrInfo.rankNum === 'number' ? wrInfo.rankNum : 999;
+            const rankItems = user ? getRankUnlockedItems(user.hunterpoints, wrNum) : [];
             const totalOwned = [...new Set([...(user ? user.inventory || [] : []), ...rankItems])];
 
             if (isAdmin || totalOwned.includes(invString)) {
