@@ -269,8 +269,8 @@ setInterval(() => {
         const isMatch = (mana1, mana2) => {
             // S+ Apex Tier: 1000+ HuP matches with ANY other 1000+ HuP
             if (mana1 >= 1000 && mana2 >= 1000) return true;
-            // Standard Tier: Must be within +/- 350 HuP of each other
-            if (mana1 < 1000 && mana2 < 1000 && Math.abs(mana1 - mana2) <= 350) return true;
+            // Standard Tier: Must be within +/- 200 HuP of each other
+            if (mana1 < 1000 && mana2 < 1000 && Math.abs(mana1 - mana2) <= 200) return true;
             
             return false;
         };
@@ -408,6 +408,44 @@ io.on('connection', (socket) => {
                 }
             }
             if (!found) socket.emit('adminSearchResponse', { found: false, message: "PLAYER NOT IN A MATCH" });
+        }
+
+        if (data.action === 'status') {
+            let players = [];
+            for (let username in connectedUsers) {
+                const sid = connectedUsers[username];
+                const sock = io.sockets.sockets.get(sid);
+                if (!sock) continue;
+
+                let loc = "UNKNOWN";
+                
+                if (matchmakingPool.some(p => p.username === username)) {
+                    loc = "MATCHMAKING";
+                } else {
+                    let foundRoom = false;
+                    for (let rid in rooms) {
+                        const r = rooms[rid];
+                        if (r.players.some(p => p.name === username && !p.quit)) {
+                            foundRoom = true;
+                            if (r.active) {
+                                if (!r.isOnline) loc = "INGAME (SOLO AI)";
+                                else if (r.isRanked) loc = "INGAME (RANKED PVP)";
+                                else loc = "INGAME (CUSTOM PVP)";
+                            } else {
+                                loc = "WAITING ROOM (" + (r.isRanked ? "RANKED" : "CUSTOM") + ")";
+                            }
+                            break;
+                        }
+                    }
+                    if (!foundRoom) {
+                        if (sock.rooms.has('lobby_main')) loc = "MULTIPLAYER LOBBY";
+                        else if (sock.rooms.has('profile_page')) loc = "PROFILE MENU";
+                        else loc = "NAVIGATING MENUS";
+                    }
+                }
+                players.push({ name: username, location: loc });
+            }
+            socket.emit('adminStatusResponse', { total: players.length, players });
         }
 
         if (data.action === 'grantItem') {
@@ -1176,4 +1214,3 @@ async function broadcastGameState(room) {
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => console.log(`SYSTEM: ONLINE ON PORT ${PORT}`));
-
