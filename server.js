@@ -972,7 +972,7 @@ function resolveBattle(room, attacker, defender, isMonolith) {
                 let pChance = 0.20;
                 const allSorted = room.players.slice().sort((a, b) => a.mana - b.mana);
                 if (allSorted.length > 0 && (bAtt.id === allSorted[0].id || (allSorted.length > 1 && bAtt.id === allSorted[1].id))) {
-                    pChance = 0.40; // 25% BUFF UNDERDOG PRESERVED
+                    pChance = 0.40; // 40% BUFF UNDERDOG PRESERVED
                 }
 
                 if(!bAtt.powerUp && Math.random() < pChance) {
@@ -1252,5 +1252,6 @@ async function broadcastGameState(room) {
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => console.log(`SYSTEM: ONLINE ON PORT ${PORT}`));
+
 
 
