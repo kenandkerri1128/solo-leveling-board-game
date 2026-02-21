@@ -935,18 +935,24 @@ function resolveBattle(room, attacker, defender, isMonolith) {
     attacker.turnsWithoutBattle = 0;
     if(!isMonolith) { attacker.turnsWithoutPvP = 0; defender.turnsWithoutBattle = 0; defender.turnsWithoutPvP = 0; }
 
-    let bAtt = attacker; let bDef = defender; let swp = null;
+    let bAtt = attacker; 
+    let bDef = defender; 
+    let swp = null;
+
     if (attacker.activeBuff === 'SOUL SWAP') swp = attacker;
     else if (!isMonolith && defender.activeBuff === 'SOUL SWAP') swp = defender;
 
     if (swp) {
         const victims = room.players.filter(p => p.alive && !p.quit && p.id !== attacker.id && p.id !== (isMonolith ? null : defender.id));
         if (victims.length > 0) {
-            const v = victims[Math.floor(Math.random() * victims.length)];
-            io.to(room.id).emit('announcement', `${swp.name} used SOUL SWAP! Swapping with ${v.name}!`);
-            if (swp.id === attacker.id) bAtt = v; else bDef = v;
+            const proxy = victims[Math.floor(Math.random() * victims.length)];
+            io.to(room.id).emit('announcement', `${swp.name} used SOUL SWAP! Dragging ${proxy.name} into the battle!`);
+            if (swp.id === attacker.id) bAtt = proxy; else bDef = proxy;
             swp.activeBuff = null;
-        } else { bAtt.activeBuff = null; if(!isMonolith) bDef.activeBuff = null; }
+        } else { 
+            bAtt.activeBuff = null; if(!isMonolith) bDef.activeBuff = null; 
+            swp = null;
+        }
     }
 
     let aM = bAtt.mana; let dM = bDef.mana; let can = false; let aw = false;
@@ -959,30 +965,53 @@ function resolveBattle(room, attacker, defender, isMonolith) {
         if(bDef.activeBuff === 'AIR WALK') { can = true; teleport(bDef); }
     }
     
-    if(bAtt.id !== swp?.id) bAtt.activeBuff = null;
-    if(!isMonolith && bDef.id !== swp?.id) bDef.activeBuff = null;
+    bAtt.activeBuff = null;
+    if(!isMonolith) bDef.activeBuff = null;
 
     if(!can) {
         if(aw || aM >= dM) {
-            bAtt.mana += bDef.mana;
             if(isMonolith) {
                 delete room.world[`${attacker.x}-${attacker.y}`];
-                if(bDef.rank === 'Eagle') return handleWin(room, bAtt.name);
+                if(bDef.rank === 'Eagle') return handleWin(room, swp ? swp.name : bAtt.name);
+                
+                if (swp) {
+                    swp.mana += bDef.mana;
+                    swp.x = attacker.x;
+                    swp.y = attacker.y;
+                } else {
+                    bAtt.mana += bDef.mana;
+                }
                 
                 let pChance = 0.20;
                 const allSorted = room.players.slice().sort((a, b) => a.mana - b.mana);
-                if (allSorted.length > 0 && (bAtt.id === allSorted[0].id || (allSorted.length > 1 && bAtt.id === allSorted[1].id))) {
-                    pChance = 0.40; // 40% BUFF UNDERDOG PRESERVED
+                let targetUser = swp ? swp : bAtt;
+                if (allSorted.length > 0 && (targetUser.id === allSorted[0].id || (allSorted.length > 1 && targetUser.id === allSorted[1].id))) {
+                    pChance = 0.40;
                 }
 
-                if(!bAtt.powerUp && Math.random() < pChance) {
-                    bAtt.powerUp = POWER_UPS[Math.floor(Math.random() * POWER_UPS.length)];
-                    io.to(bAtt.id).emit('announcement', `OBTAINED RUNE: ${bAtt.powerUp}`);
+                if(!targetUser.powerUp && Math.random() < pChance) {
+                    targetUser.powerUp = POWER_UPS[Math.floor(Math.random() * POWER_UPS.length)];
+                    io.to(targetUser.id).emit('announcement', `OBTAINED RUNE: ${targetUser.powerUp}`);
                 }
-            } else { bDef.alive = false; if (swp) { swp.mana += bDef.mana; swp.x = bDef.x; swp.y = bDef.y; } }
+            } else { 
+                bDef.alive = false; 
+                if (swp) { 
+                    swp.mana += bDef.mana; 
+                    swp.x = bDef.x; 
+                    swp.y = bDef.y; 
+                } else {
+                    bAtt.mana += bDef.mana;
+                }
+            }
         } else {
-            if(!isMonolith) bDef.mana += bAtt.mana;
             bAtt.alive = false;
+            if (swp) {
+                swp.mana += bAtt.mana;
+                swp.x = bAtt.x;
+                swp.y = bAtt.y;
+            } else {
+                if(!isMonolith) bDef.mana += bAtt.mana;
+            }
         }
     }
     io.to(room.id).emit('battleEnd');
@@ -1252,6 +1281,3 @@ async function broadcastGameState(room) {
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => console.log(`SYSTEM: ONLINE ON PORT ${PORT}`));
-
-
-
