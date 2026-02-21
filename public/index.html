@@ -610,7 +610,7 @@
         function playTrack(name) {
             if(!name || currentBGM === name) return;
             currentBGM = name;
-            BGM.src = (name === 'menu.mp3' || name === 'waiting.mp3' || name === 'gameplay.mp3') ? `/music/${name}` : `/uploads/music/${name}`;
+            BGM.src = (name === 'login.mp3' || name === 'menu.mp3' || name === 'waiting.mp3' || name === 'gameplay.mp3') ? `/music/${name}` : `/uploads/music/${name}`;
             BGM.play().catch(()=>{});
         }
 
@@ -625,6 +625,18 @@
         }
 
         window.onload = function() {
+            // Attempt to play login music right away
+            playTrack('login.mp3');
+            
+            // Set up a one-time click listener to bypass browser autoplay restrictions
+            const startAudio = () => {
+                if(currentBGM === 'login.mp3' && BGM.paused) {
+                    BGM.play().catch(()=>{});
+                }
+                document.removeEventListener('click', startAudio);
+            };
+            document.addEventListener('click', startAudio);
+
             const stored = sessionStorage.getItem('hunter_creds');
             if(stored) {
                 try {
