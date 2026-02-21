@@ -788,6 +788,7 @@ io.on('connection', (socket) => {
                 p.activeBuff = data.powerUp;
                 p.powerUp = null;
                 io.to(r.id).emit('announcement', `${p.name} ACTIVATED ${data.powerUp}!`);
+                io.to(r.id).emit('broadcastPowerUp', { hunter: p.name, powerUp: data.powerUp });
                 if (r.afkTimer) { clearTimeout(r.afkTimer); r.afkTimer = null; }
             }
         }
@@ -1250,6 +1251,7 @@ function runAIMove(room, ai) {
             if (activate) {
                 ai.activeBuff = ai.powerUp; ai.powerUp = null;
                 io.to(room.id).emit('announcement', `${ai.name} ACTIVATED ${ai.activeBuff}!`);
+                io.to(room.id).emit('broadcastPowerUp', { hunter: ai.name, powerUp: ai.activeBuff });
             }
         }
     }
