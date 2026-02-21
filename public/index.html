@@ -240,11 +240,17 @@
 
         /* --- GAME EFFECTS CSS --- */
         .hidden-effect { display: none; }
-        #clash-effect-container {
+        #clash-effect-container, #powerup-effect-container {
             position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
-            z-index: 9999; pointer-events: none;
+            z-index: 9999; pointer-events: none; text-align: center;
         }
         #clash-animation { width: 300px; height: auto; filter: drop-shadow(0 0 10px white); }
+        
+        #powerup-animation-icon {
+            font-size: 150px; 
+            filter: drop-shadow(0 0 20px var(--sys-gold));
+        }
+
         .clash-active {
             display: block !important;
             animation: fadeOutEffect 1s forwards;
@@ -536,6 +542,10 @@
         <img src="assets/sword-clash.gif" id="clash-animation" alt="Sword Clash" onerror="this.src='https://via.placeholder.com/300x300.png?text=Sword+Clash+GIF'" />
     </div>
 
+    <div id="powerup-effect-container" class="hidden-effect">
+        <div id="powerup-animation-icon"></div>
+    </div>
+
     <script>
         const RENDER_URL = "https://originmanaseige.onrender.com";
         
@@ -551,14 +561,20 @@
         let currentHunterPowerUp = null, currentGameState = null, currentWorldRankings = [];
         const BGM = document.getElementById('bgm');
 
+        const POWER_ICONS = { 'DOUBLE DAMAGE': '⚔️', 'AIR WALK': '👣', 'SOUL SWAP': '🌀', 'RULERS POWER': '👑', '?': '❓' };
+
         class GameEffectsManager {
             constructor() {
                 this.clashSound = new Audio('assets/sounds/sword-clash.mp3');
                 this.silverEagleSound = new Audio('assets/sounds/whirling-loop.mp3');
                 this.silverEagleSound.loop = true;
+                
                 this.clashContainer = document.getElementById('clash-effect-container');
+                this.powerupContainer = document.getElementById('powerup-effect-container');
+                this.powerupIcon = document.getElementById('powerup-animation-icon');
                 this.eagleActive = false;
             }
+            
             triggerCombatEffect() {
                 this.clashSound.currentTime = 0;
                 this.clashSound.play().catch(e => console.log("Audio interaction needed:", e));
@@ -569,12 +585,58 @@
                     setTimeout(() => { this.clashContainer.classList.remove('clash-active'); }, 1000);
                 }
             }
+            
+            triggerPowerUpEffect(powerUpName) {
+                // Synthesize the sparkle sound natively
+                this.playSparkleSound();
+                
+                // Get the emoji and update the HTML
+                const icon = POWER_ICONS[powerUpName] || '⭐';
+                if (this.powerupIcon) this.powerupIcon.innerText = icon;
+                
+                // Trigger the fade out animation
+                if (this.powerupContainer) {
+                    this.powerupContainer.classList.remove('clash-active');
+                    void this.powerupContainer.offsetWidth;
+                    this.powerupContainer.classList.add('clash-active');
+                    setTimeout(() => { this.powerupContainer.classList.remove('clash-active'); }, 1000);
+                }
+            }
+
+            playSparkleSound() {
+                try {
+                    const AudioContext = window.AudioContext || window.webkitAudioContext;
+                    if (!AudioContext) return;
+                    const ctx = new AudioContext();
+                    
+                    // Creates a rapid 3-note magical "chime" sound
+                    const freqs = [880, 1108, 1318]; // A5, C#6, E6 notes
+                    freqs.forEach((freq, i) => {
+                        const osc = ctx.createOscillator();
+                        const gain = ctx.createGain();
+                        osc.type = 'sine';
+                        osc.frequency.value = freq;
+                        
+                        const startTime = ctx.currentTime + (i * 0.05);
+                        gain.gain.setValueAtTime(0, startTime);
+                        gain.gain.linearRampToValueAtTime(0.3, startTime + 0.02);
+                        gain.gain.exponentialRampToValueAtTime(0.01, startTime + 0.3);
+                        
+                        osc.connect(gain);
+                        gain.connect(ctx.destination);
+                        osc.start(startTime);
+                        osc.stop(startTime + 0.3);
+                    });
+                } catch(e) {}
+            }
+
             startSilverEaglePresence() {
                 if(!this.eagleActive) {
                     this.silverEagleSound.play().catch(e => console.log("Audio interaction needed:", e));
                     this.eagleActive = true;
                 }
             }
+            
             stopSilverEaglePresence() {
                 if(this.eagleActive) {
                     this.silverEagleSound.pause();
@@ -584,8 +646,6 @@
             }
         }
         const fxManager = new GameEffectsManager();
-
-        const POWER_ICONS = { 'DOUBLE DAMAGE': '⚔️', 'AIR WALK': '👣', 'SOUL SWAP': '🌀', 'RULERS POWER': '👑', '?': '❓' };
 
         // NATIVE WEB AUDIO BEEP FOR DMs
         function playDMSound() {
@@ -1282,6 +1342,7 @@
 
         function usePowerUp() {
             if (currentHunterPowerUp && currentGameState && currentGameState.processing) {
+                fxManager.triggerPowerUpEffect(currentHunterPowerUp); // Triggers the visual icon and native sound
                 socket.emit('activateSkill', { powerUp: currentHunterPowerUp });
                 document.getElementById('btn-powerup').style.display = 'none';
             }
