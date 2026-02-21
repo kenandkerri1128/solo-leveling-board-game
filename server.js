@@ -269,8 +269,8 @@ setInterval(() => {
         const isMatch = (mana1, mana2) => {
             // S+ Apex Tier: 1000+ HuP matches with ANY other 1000+ HuP
             if (mana1 >= 1000 && mana2 >= 1000) return true;
-            // Standard Tier: Must be within +/- 200 HuP of each other
-            if (mana1 < 1000 && mana2 < 1000 && Math.abs(mana1 - mana2) <= 200) return true;
+            // Standard Tier: Must be within +/- 350 HuP of each other
+            if (mana1 < 1000 && mana2 < 1000 && Math.abs(mana1 - mana2) <= 350) return true;
             
             return false;
         };
@@ -1176,3 +1176,4 @@ async function broadcastGameState(room) {
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => console.log(`SYSTEM: ONLINE ON PORT ${PORT}`));
+
