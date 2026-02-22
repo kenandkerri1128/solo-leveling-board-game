@@ -254,6 +254,8 @@
 
         /* --- GAME EFFECTS CSS --- */
         .hidden-effect { display: none; }
+        #mobile-quit-btn { display: none; } /* HIDDEN ON DESKTOP */
+        
         #clash-effect-container {
             position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
             z-index: 9999; pointer-events: none; text-align: center;
@@ -291,7 +293,6 @@
             h1 { font-size: 2.2rem !important; }
             h2 { font-size: 1.5rem !important; }
             
-            /* REMOVED DISPLAY:FLEX FROM HERE TO FIX THE VICTORY SCREEN BUG */
             .screen { padding: 2vh 10px 150px 10px !important; height: 100dvh !important; overflow-x: hidden !important; overflow-y: auto !important; justify-content: flex-start; } 
             
             .profile-container { flex-direction: column !important; width: 100%; gap: 15px; padding: 0 10px; }
@@ -315,6 +316,10 @@
             .hud-left { order: 3; width: 100%; border-right: none; border-top: 1px solid #333; padding: 10px; height: auto; flex-shrink: 1; box-sizing: border-box;}
             .rank-table { display: none; } 
             
+            /* TARGETED QUIT BUTTON DISPLAY LOGIC FOR MOBILE */
+            #desktop-quit-btn { display: none !important; }
+            #mobile-quit-btn { display: block !important; order: 4; width: calc(100% - 20px) !important; margin: 20px auto 40px auto !important; flex-shrink: 0; }
+
             .sys-btn { width: 100% !important; margin: 5px 0 !important; box-sizing: border-box; }
             .sys-input { width: 100% !important; max-width: 100% !important; box-sizing: border-box; margin: 5px 0 !important;}
         }
@@ -549,8 +554,10 @@
                 <tr><td style="color:var(--rank-e)">Lower E</td><td>0-50</td></tr>
             </table>
 
-            <button class="sys-btn danger" style="width: 100%; margin-top: auto;" onclick="quitAction()">QUIT QUEST</button>
+            <button id="desktop-quit-btn" class="sys-btn danger" style="width: 100%; margin-top: auto;" onclick="quitAction()">QUIT QUEST</button>
         </div>
+        
+        <button id="mobile-quit-btn" class="sys-btn danger" onclick="quitAction()">QUIT QUEST</button>
     </div>
 
     <div id="chat-template" style="display:none;">
