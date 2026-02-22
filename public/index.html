@@ -441,6 +441,11 @@
                     <button class="sys-btn gold" style="margin-top: 10px;" onclick="doAdmin('status')">SERVER STATUS</button>
                 </div>
 
+                <div id="tutorial-video-container" style="display: none; width: 100%; margin-bottom: 20px; border: 1px solid var(--sys-blue); box-shadow: 0 0 10px rgba(0, 210, 255, 0.2); box-sizing: border-box; padding: 10px; background: rgba(0,0,0,0.8);">
+                    <div style="color: var(--sys-gold); font-family: 'Orbitron'; font-weight: 900; font-size: 0.8rem; margin-bottom: 10px; text-align: center; letter-spacing: 1px;">SYSTEM TUTORIAL</div>
+                    <video src="assets/tutorial.mp4" controls playsinline style="width: 100%; height: auto; border: 1px solid #333; outline: none;"></video>
+                </div>
+
                 <div style="margin-top: auto; display: flex; flex-direction: column; gap: 10px; width: 100%;">
                     <button class="sys-btn" style="border-color:var(--sys-gold); color:var(--sys-gold);" onclick="socket.emit('requestInventoryUpdate', myHunter.username); showScreen('screen-inventory'); renderInventory('skin');">VAULT (INVENTORY)</button>
                     <button class="sys-btn gold" onclick="startAI('Eagle')">SOLO/AI</button>
@@ -849,6 +854,16 @@
             badgeName.style.color = rankInfo.color;
             badgeName.style.textShadow = `0 0 10px ${rankInfo.color}`;
             
+            // DYNAMIC TUTORIAL VIDEO TOGGLE
+            const tutorialContainer = document.getElementById('tutorial-video-container');
+            if (tutorialContainer) {
+                if (rankInfo.letter === "E-") {
+                    tutorialContainer.style.display = 'block';
+                } else {
+                    tutorialContainer.style.display = 'none';
+                }
+            }
+
             if (d.isAdmin) {
                 document.getElementById('admin-controls').style.display = 'flex';
                 document.getElementById('admin-room-panel').style.display = 'flex';
