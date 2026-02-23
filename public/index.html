@@ -5,6 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>ORIGIN: MANA SIEGE</title>
 
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#00d2ff">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Mana Siege">
+    <link rel="apple-touch-icon" href="/assets/favicon.png">
+
     <script>
     !function(f,b,e,v,n,t,s)
     {if(f.fbq)return;n=f.fbq=function(){n.callMethod?
@@ -392,6 +399,7 @@
         <div style="display:flex; flex-direction: column; gap:10px; margin-top:20px; width: 100%; max-width: 400px; padding: 0 20px;">
             <button class="sys-btn" onclick="auth('login')">LOGIN</button>
             <button class="sys-btn" style="border-color:#444; color:#aaa;" onclick="auth('signup')">REGISTER</button>
+            <button id="btn-install" class="sys-btn gold" style="display:none; margin-top:15px; border-color:var(--sys-gold); color:var(--sys-gold);" onclick="installApp()">⬇ INSTALL GAME APP</button>
         </div>
     </div>
 
@@ -796,7 +804,6 @@
                     BGM.pause(); 
                 });
                 tutorialVideo.addEventListener('pause', () => { 
-                    // Only resume BGM if we are actually on the profile menu screen
                     if(document.getElementById('screen-menu').classList.contains('active')) {
                         BGM.play().catch(()=>{}); 
                     }
@@ -1524,6 +1531,34 @@
             if (mana >= 301) return 3; 
             if (mana >= 101) return 2; 
             return 1; 
+        }
+
+        // --- PWA INSTALLATION LOGIC ---
+        let deferredPrompt;
+        window.addEventListener('beforeinstallprompt', (e) => {
+            e.preventDefault();
+            deferredPrompt = e;
+            const installBtn = document.getElementById('btn-install');
+            if(installBtn) installBtn.style.display = 'block';
+        });
+
+        function installApp() {
+            if (deferredPrompt) {
+                deferredPrompt.prompt();
+                deferredPrompt.userChoice.then((choiceResult) => {
+                    if (choiceResult.outcome === 'accepted') {
+                        console.log('Hunter installed the System App');
+                    }
+                    deferredPrompt = null;
+                    document.getElementById('btn-install').style.display = 'none';
+                });
+            }
+        }
+
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('/sw.js').then(() => {
+                console.log('System Diagnostics: Service Worker Online');
+            });
         }
     </script>
 </body>
