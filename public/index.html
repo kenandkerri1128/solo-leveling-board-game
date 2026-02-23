@@ -770,10 +770,11 @@
             } catch(e) {}
         }
 
+        // EDITED: Updated the list of recognized native BGM tracks to include victory.mp3 and lose.mp3
         function playTrack(name) {
             if(!name || currentBGM === name) return;
             currentBGM = name;
-            BGM.src = (name === 'login.mp3' || name === 'menu.mp3' || name === 'waiting.mp3' || name === 'gameplay.mp3') ? `/music/${name}` : `/uploads/music/${name}`;
+            BGM.src = (name === 'login.mp3' || name === 'menu.mp3' || name === 'waiting.mp3' || name === 'gameplay.mp3' || name === 'victory.mp3' || name === 'lose.mp3') ? `/music/${name}` : `/uploads/music/${name}`;
             BGM.play().catch(()=>{});
         }
 
@@ -1486,6 +1487,7 @@
             }
         });
 
+        // EDITED: Added precise sound triggers here based on win/loss condition
         socket.on('victoryEvent', (data) => {
             fxManager.stopSilverEaglePresence();
             const scr = document.getElementById('victory-screen');
@@ -1507,9 +1509,15 @@
                 else info.innerText = `UNRANKED MATCH: NO HUP REWARD`;
                 
                 info.style.color = 'var(--rank-e)'; 
+                
+                // Plays victory sound exclusively when the player wins
+                playTrack('victory.mp3'); 
             } else { 
                 info.innerText = `MISSION ENDED`; 
                 info.style.color = '#888'; 
+                
+                // Plays loss sound exclusively when the final game over screen shows and the player is not the winner
+                playTrack('lose.mp3'); 
             }
         });
 
