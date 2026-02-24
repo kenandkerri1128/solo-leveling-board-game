@@ -399,7 +399,7 @@
         <div style="display:flex; flex-direction: column; gap:10px; margin-top:20px; width: 100%; max-width: 400px; padding: 0 20px;">
             <button class="sys-btn" onclick="auth('login')">LOGIN</button>
             <button class="sys-btn" style="border-color:#444; color:#aaa;" onclick="auth('signup')">REGISTER</button>
-            <button id="btn-install" class="sys-btn gold" style="display:none; margin-top:15px; border-color:var(--sys-gold); color:var(--sys-gold);" onclick="installApp()">⬇ INSTALL GAME APP</button>
+            <button id="btn-install" class="sys-btn gold" style="display:block; margin-top:15px; border-color:var(--sys-gold); color:var(--sys-gold);" onclick="installApp()">⬇ INSTALL GAME APP</button>
         </div>
     </div>
 
@@ -440,7 +440,7 @@
                 </div>
 
                 <div id="player-socials" style="display: none; justify-content: space-around; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 20px; border-top: 1px solid #333; border-bottom: 1px solid #333; padding: 15px 0;">
-                    <a href="https://patreon.com/xeniegaming" target="_blank" class="social-btn" style="color: #f96854;">
+                    <a href="https://patreon.com/OriginManaSiege" target="_blank" class="social-btn" style="color: #f96854;">
                         <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M15.386.524c-4.764 0-8.64 3.876-8.64 8.64 0 4.75 3.876 8.613 8.64 8.613 4.75 0 8.614-3.864 8.614-8.613C24 4.4 20.136.524 15.386.524zM.003 23.537h4.22V.524H.003v23.013z"/></svg>
                         <span>PATREON</span>
                     </a>
@@ -770,7 +770,6 @@
             } catch(e) {}
         }
 
-        // EDITED: Updated the list of recognized native BGM tracks to include victory.mp3 and lose.mp3
         function playTrack(name) {
             if(!name || currentBGM === name) return;
             currentBGM = name;
@@ -1487,7 +1486,6 @@
             }
         });
 
-        // EDITED: Added precise sound triggers here based on win/loss condition
         socket.on('victoryEvent', (data) => {
             fxManager.stopSilverEaglePresence();
             const scr = document.getElementById('victory-screen');
@@ -1510,13 +1508,11 @@
                 
                 info.style.color = 'var(--rank-e)'; 
                 
-                // Plays victory sound exclusively when the player wins
                 playTrack('victory.mp3'); 
             } else { 
                 info.innerText = `MISSION ENDED`; 
                 info.style.color = '#888'; 
                 
-                // Plays loss sound exclusively when the final game over screen shows and the player is not the winner
                 playTrack('lose.mp3'); 
             }
         });
@@ -1541,13 +1537,12 @@
             return 1; 
         }
 
-        // --- PWA INSTALLATION LOGIC ---
+        // --- PWA INSTALLATION LOGIC UPDATED ---
         let deferredPrompt;
         window.addEventListener('beforeinstallprompt', (e) => {
             e.preventDefault();
             deferredPrompt = e;
-            const installBtn = document.getElementById('btn-install');
-            if(installBtn) installBtn.style.display = 'block';
+            // Removed the display:block override here since it is now hardcoded in the HTML
         });
 
         function installApp() {
@@ -1558,8 +1553,9 @@
                         console.log('Hunter installed the System App');
                     }
                     deferredPrompt = null;
-                    document.getElementById('btn-install').style.display = 'none';
                 });
+            } else {
+                alert("SYSTEM MESSAGE: To install the app, open this page in Chrome or Safari, then select 'Add to Home Screen' from your browser menu. (In-app browsers like Facebook cannot install apps directly).");
             }
         }
 
@@ -1571,4 +1567,3 @@
     </script>
 </body>
 </html>
-
